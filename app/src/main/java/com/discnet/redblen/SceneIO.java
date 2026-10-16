@@ -75,13 +75,7 @@ public final class SceneIO {
         for(Scene.Part p:scene.objects){
             if(!p.visible)continue;
             w.write("o "+p.name.replaceAll("[^a-zA-Z0-9_-]","_")+"\n");
-            float[] m=new float[16],v=new float[4],transformed=new float[4];
-            Matrix.setIdentityM(m,0);
-            Matrix.translateM(m,0,p.position[0],p.position[1],p.position[2]);
-            Matrix.rotateM(m,0,p.rotation[2],0,0,1);
-            Matrix.rotateM(m,0,p.rotation[1],0,1,0);
-            Matrix.rotateM(m,0,p.rotation[0],1,0,0);
-            Matrix.scaleM(m,0,p.scale[0],p.scale[1],p.scale[2]);
+            float[] m=ModelTransforms.matrix(p),v=new float[4],transformed=new float[4];
             for(int i=0;i<p.mesh.vertexCount();i++){
                 v[0]=p.mesh.vertices[3*i];v[1]=p.mesh.vertices[3*i+1];v[2]=p.mesh.vertices[3*i+2];v[3]=1;
                 Matrix.multiplyMV(transformed,0,m,0,v,0);

@@ -6,7 +6,9 @@ import java.util.ArrayList;
 public final class Scene {
     public static final int MAX_OBJECTS=60;
     public enum Mode { OBJECT, VERTEX, FACE }
-    public enum Tool { ORBIT, MOVE, ROTATE, SCALE }
+    public enum Tool { ORBIT, PAN, LOOK, MOVE, ROTATE, SCALE }
+    public enum ScaleAxis { ALL, X, Y, Z }
+    public ScaleAxis scaleAxis=ScaleAxis.ALL;
     public final ArrayList<Part> objects=new ArrayList<>();
     public int selected=-1,selectedFace=-1,selectedVertex=-1;
     public Mode mode=Mode.OBJECT;

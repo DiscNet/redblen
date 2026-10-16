@@ -126,7 +126,8 @@ public final class MeshEditing {
         }
         java.util.LinkedHashSet<Integer> found=new java.util.LinkedHashSet<>();
         found.add(sourceFace);float[] center=centers[sourceFace];
-        int[] subset=masks(mirrorMask),count=Math.max(1,Math.min(8,radialCount));
+        int[] subset=masks(mirrorMask);
+        int count=Math.max(1,Math.min(8,radialCount));
         for(int angle=0;angle<count;angle++)for(int mask:subset){
             float[] wanted=transformed(center,mask,angle,count);
             float best=MATCH_EPS*MATCH_EPS*9;int candidate=-1;
@@ -194,7 +195,8 @@ public final class MeshEditing {
         HashMap<String,ArrayList<Integer>> lookup=new HashMap<>();
         for(int i=0;i<mesh.vertexCount();i++)lookup.computeIfAbsent(key(original,i),k->new ArrayList<>()).add(i);
         LinkedHashMap<Integer,float[]> deltas=new LinkedHashMap<>();
-        int[] copies=masks(mirrorMask),rotations=Math.max(1,Math.min(radialCount,8));
+        int[] copies=masks(mirrorMask);
+        int rotations=Math.max(1,Math.min(radialCount,8));
         for(int id:selection){
             if(id<0||id>=mesh.vertexCount())continue;
             float[] old={original[3*id],original[3*id+1],original[3*id+2]};

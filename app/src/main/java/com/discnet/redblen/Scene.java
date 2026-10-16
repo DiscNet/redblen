@@ -62,7 +62,7 @@ public final class Scene {
     }
     public void duplicate() {
         if(current()==null||objects.size()>=MAX_OBJECTS)return;
-        checkpoint();objects.add(current().copy());selected=objects.size()-1;selectedFace=-1;selectedVertex=-1;
+        checkpoint();objects.add(current().copy());selected=objects.size()-1;selectedFace=-1;selectedVertex=-1;selectedVertices.clear();
     }
     public void checkpoint(){
         if(undo.size()>=35)undo.removeFirst();

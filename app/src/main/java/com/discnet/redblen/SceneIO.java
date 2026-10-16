@@ -21,7 +21,11 @@ public final class SceneIO {
     private SceneIO(){}
     public static String encode(Scene scene) {
         try {
-            JSONObject root=new JSONObject().put("format","redblen-v1").put("selected",scene.selected);
+            JSONObject root=new JSONObject().put("format","redblen-v1").put("selected",scene.selected)
+                .put("symmetryMask",scene.symmetryMask).put("radialCopies",scene.radialCopies)
+                .put("multiSelect",scene.multiSelect).put("brushRadius",(double)scene.brushRadius)
+                .put("brushStrength",(double)scene.brushStrength)
+                .put("sculptBrush",scene.sculptBrush.name());
             JSONArray arr=new JSONArray();
             for(Scene.Part p:scene.objects) {
                 JSONObject o=new JSONObject().put("name",p.name).put("color",p.color).put("visible",p.visible)
@@ -86,7 +90,15 @@ public final class SceneIO {
         }
         scene.objects.clear();scene.objects.addAll(loaded);
         scene.selected=Math.min(arr.length()-1,Math.max(-1,root.optInt("selected",-1)));
-        scene.selectedFace=-1;scene.selectedVertex=-1;
+        scene.selectedFace=-1;scene.selectedVertex=-1;scene.selectedVertices.clear();
+        scene.symmetryMask=Math.max(0,Math.min(7,root.optInt("symmetryMask",0)));
+        int radial=root.optInt("radialCopies",1);
+        scene.radialCopies=(radial==1||radial==2||radial==4||radial==6||radial==8)?radial:1;
+        scene.multiSelect=root.optBoolean("multiSelect",false);
+        scene.brushRadius=range(root.optDouble("brushRadius",.85),.15f,3f);
+        scene.brushStrength=range(root.optDouble("brushStrength",.25),.01f,1f);
+        try {scene.sculptBrush=Scene.SculptBrush.valueOf(root.optString("sculptBrush","PULL"));}
+        catch(IllegalArgumentException ignored){scene.sculptBrush=Scene.SculptBrush.PULL;}
     }
 
     private static float range(double number,float lo,float hi)throws JSONException {

@@ -279,7 +279,7 @@ public final class MainActivity extends Activity implements View3D.Listener {
             LinearLayout row=row();row.setGravity(Gravity.CENTER_VERTICAL);
             TextView visible=button(p.visible?"◉":"○",false,()->{scene.checkpoint();p.visible=!p.visible;refreshAll();});
             row.addView(visible,new LinearLayout.LayoutParams(dp(46),dp(37)));
-            TextView name=button(p.name,i==scene.selected,()->{scene.selected=index;scene.selectedFace=-1;scene.selectedVertex=-1;refreshAll();});
+            TextView name=button(p.name,i==scene.selected,()->{scene.selected=index;scene.selectedFace=-1;scene.selectedVertex=-1;scene.selectedVertices.clear();refreshAll();});
             row.addView(name,new LinearLayout.LayoutParams(0,dp(37),1));
             LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,dp(42));body.addView(row,lp);
         }
@@ -661,7 +661,7 @@ public final class MainActivity extends Activity implements View3D.Listener {
                 try(Reader r=new InputStreamReader(getContentResolver().openInputStream(uri),StandardCharsets.UTF_8)){mesh=SceneIO.readObj(r);}
                 if(scene.objects.size()>=Scene.MAX_OBJECTS){toast("Limite de objetos");return;}
                 scene.checkpoint();scene.objects.add(new Scene.Part("OBJ importado",mesh));scene.selected=scene.objects.size()-1;
-                scene.selectedVertex=-1;scene.selectedFace=-1;closeSheet();refreshAll();saveAutosave();toast("OBJ importado");
+                scene.selectedVertex=-1;scene.selectedFace=-1;scene.selectedVertices.clear();closeSheet();refreshAll();saveAutosave();toast("OBJ importado");
             }else if(request==WRITE_OBJ||request==WRITE_PROJECT){
                 try(Writer w=new OutputStreamWriter(getContentResolver().openOutputStream(uri),StandardCharsets.UTF_8)){
                     if(request==WRITE_OBJ)SceneIO.writeObj(scene,w);else w.write(SceneIO.encodePortable(scene,this));

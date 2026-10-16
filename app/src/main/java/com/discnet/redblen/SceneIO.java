@@ -1,6 +1,11 @@
 package com.discnet.redblen;
 
 import android.opengl.Matrix;
+import android.content.Context;
+import android.util.Base64;
+import java.io.File;
+import java.nio.file.Files;
+import java.util.HashSet;
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -20,7 +25,13 @@ public final class SceneIO {
             JSONArray arr=new JSONArray();
             for(Scene.Part p:scene.objects) {
                 JSONObject o=new JSONObject().put("name",p.name).put("color",p.color).put("visible",p.visible)
-                  .put("position",vec(p.position)).put("rotation",vec(p.rotation)).put("scale",vec(p.scale));
+                  .put("position",vec(p.position)).put("rotation",vec(p.rotation)).put("scale",vec(p.scale))
+                  .put("metallic",(double)p.metallic).put("roughness",(double)p.roughness)
+                  .put("reflectivity",(double)p.reflectivity).put("emission",(double)p.emission)
+                  .put("opacity",(double)p.opacity).put("textureStrength",(double)p.textureStrength)
+                  .put("textureRepeat",(double)p.textureRepeat)
+                  .put("textureRotation",(double)p.textureRotation)
+                  .put("textureId",p.textureId);
                 JSONArray verts=new JSONArray(),faces=new JSONArray();
                 for(float v:p.mesh.vertices)verts.put((double)v);
                 for(int[] f:p.mesh.faces){JSONArray a=new JSONArray();for(int id:f)a.put(id);faces.put(a);}
@@ -61,10 +72,58 @@ public final class SceneIO {
             p.rotation=floats(o.getJSONArray("rotation"),3);
             p.scale=floats(o.getJSONArray("scale"),3);
             p.color=o.optInt("color",0xFF91AEC3);
+            p.metallic=range(o.optDouble("metallic",0),0,1);
+            p.roughness=range(o.optDouble("roughness",.56),.03,1);
+            p.reflectivity=range(o.optDouble("reflectivity",.48),0,1);
+            p.emission=range(o.optDouble("emission",0),0,2);
+            p.opacity=range(o.optDouble("opacity",1),.05,1);
+            p.textureStrength=range(o.optDouble("textureStrength",1),0,1);
+            p.textureRepeat=range(o.optDouble("textureRepeat",1),.2,12);
+            p.textureRotation=range(o.optDouble("textureRotation",0),-180,180);
+            p.textureId=o.optString("textureId","");
+            if(!TextureStore.safeId(p.textureId))p.textureId="";
             p.visible=o.optBoolean("visible",true);loaded.add(p);
         }
         scene.objects.clear();scene.objects.addAll(loaded);
         scene.selected=Math.min(arr.length()-1,Math.max(-1,root.optInt("selected",-1)));
+        scene.selectedFace=-1;scene.selectedVertex=-1;
+    }
+
+    private static float range(double number,float lo,float hi)throws JSONException {
+        if(!Double.isFinite(number))throw new JSONException("Invalid material number");
+        return Math.max(lo,Math.min(hi,(float)number));
+    }
+    /** Portable exports embed referenced local texture assets so imports survive app reinstall. */
+    public static String encodePortable(Scene scene,Context context)throws Exception {
+        JSONObject root=new JSONObject(encode(scene));
+        JSONObject assets=new JSONObject();HashSet<String> done=new HashSet<>();
+        for(Scene.Part part:scene.objects) {
+            String id=part.textureId;
+            if(id.isEmpty()||!done.add(id))continue;
+            byte[] bytes=TextureStore.readBytes(context,id);
+            if(bytes!=null)assets.put(id,Base64.encodeToString(bytes,Base64.NO_WRAP));
+        }
+        root.put("textureAssets",assets);
+        return root.toString();
+    }
+    /** Import validates scene JSON before writing any embedded texture files. */
+    public static void decodePortableInto(Scene scene,String json,Context context)throws Exception {
+        Scene checked=new Scene(false);
+        decodeInto(checked,json);
+        JSONObject root=new JSONObject(json),assets=root.optJSONObject("textureAssets");
+        if(assets!=null) {
+            java.util.Iterator<String> it=assets.keys();
+            while(it.hasNext()){
+                String id=it.next();
+                if(!TextureStore.safeId(id)||id.isEmpty())throw new JSONException("Invalid embedded texture ID");
+                String encoded=assets.getString(id);
+                if(encoded.length()>7_000_000)throw new JSONException("Texture too large");
+                byte[] bytes=Base64.decode(encoded,Base64.DEFAULT);
+                TextureStore.writeEmbedded(context,id,bytes);
+            }
+        }
+        scene.objects.clear();scene.objects.addAll(checked.objects);
+        scene.selected=checked.selected;
         scene.selectedFace=-1;scene.selectedVertex=-1;
     }
 

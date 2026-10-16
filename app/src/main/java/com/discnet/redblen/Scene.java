@@ -2,13 +2,22 @@ package com.discnet.redblen;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 
 public final class Scene {
     public static final int MAX_OBJECTS=60;
-    public enum Mode { OBJECT, VERTEX, FACE }
-    public enum Tool { ORBIT, PAN, LOOK, MOVE, ROTATE, SCALE }
+    public enum Mode { OBJECT, VERTEX, FACE, SCULPT }
+    public enum Tool { ORBIT, PAN, LOOK, MOVE, ROTATE, SCALE, SCULPT }
     public enum ScaleAxis { ALL, X, Y, Z }
     public ScaleAxis scaleAxis=ScaleAxis.ALL;
+    public enum SculptBrush { PULL, PUSH, SMOOTH }
+    public SculptBrush sculptBrush=SculptBrush.PULL;
+    public float brushRadius=.85f,brushStrength=.25f;
+    /** Bit 0 = X, 1 = Y, 2 = Z; combinations produce multi-plane symmetry. */
+    public int symmetryMask=0;
+    public int radialCopies=1;
+    public boolean multiSelect=false;
+    public final LinkedHashSet<Integer> selectedVertices=new LinkedHashSet<>();
     public final ArrayList<Part> objects=new ArrayList<>();
     public int selected=-1,selectedFace=-1,selectedVertex=-1;
     public Mode mode=Mode.OBJECT;
@@ -44,12 +53,12 @@ public final class Scene {
         if(objects.size()>=MAX_OBJECTS)return;
         if(record)checkpoint();
         Part p=new Part(kind+" "+(objects.size()+1),Mesh.primitive(kind));
-        objects.add(p);selected=objects.size()-1;selectedFace=-1;selectedVertex=-1;
+        objects.add(p);selected=objects.size()-1;selectedFace=-1;selectedVertex=-1;selectedVertices.clear();
     }
     public void delete(){
         if(current()==null)return;checkpoint();
         objects.remove(selected);selected=Math.min(selected,objects.size()-1);
-        selectedFace=-1;selectedVertex=-1;
+        selectedFace=-1;selectedVertex=-1;selectedVertices.clear();
     }
     public void duplicate() {
         if(current()==null||objects.size()>=MAX_OBJECTS)return;
@@ -63,7 +72,7 @@ public final class Scene {
         if(undo.isEmpty())return false;
         redo.addLast(SceneIO.encode(this));
         String snapshot=undo.removeLast();
-        try {SceneIO.decodeInto(this,snapshot);return true;}catch(Exception e){return false;}
+        try {SceneIO.decodeInto(this,snapshot);selectedVertices.clear();return true;}catch(Exception e){return false;}
     }
     public boolean redo(){
         if(redo.isEmpty())return false;

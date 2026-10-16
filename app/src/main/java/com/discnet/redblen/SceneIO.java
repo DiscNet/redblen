@@ -29,7 +29,7 @@ public final class SceneIO {
             return root.put("objects",arr).toString();
         } catch(JSONException e){throw new IllegalStateException(e);}
     }
-    private static JSONArray vec(float[] values){JSONArray a=new JSONArray();for(float v:values)a.put((double)v);return a;}
+    private static JSONArray vec(float[] values) throws JSONException {JSONArray a=new JSONArray();for(float v:values)a.put((double)v);return a;}
     private static float[] floats(JSONArray array,int expected)throws JSONException{
         if(array.length()!=expected)throw new JSONException("Invalid vector size");
         float[] out=new float[expected];

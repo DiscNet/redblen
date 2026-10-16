@@ -35,7 +35,7 @@ public final class MainActivity extends Activity implements View3D.Listener {
     private static final int BG=0xFF111419,PANEL=0xFF1B2027,CHIP=0xFF272D36,STROKE=0xFF39424E;
     private static final int TEXT=0xFFEBF0F4,MUTED=0xFF9BA6B3,ACCENT=0xFFD9FB74;
     private static final int READ_PROJECT=201,READ_OBJ=202,WRITE_PROJECT=203,WRITE_OBJ=204;
-    private Scene scene;private View3D viewport;private FrameLayout stage;private LinearLayout modes,tools;
+    private Scene scene;private View3D viewport;private FrameLayout stage;private LinearLayout modes,tools,axisBar;
     private TextView selectionLabel;private View sheet;private String sheetName="";
     private final String[] primitives={"Cubo","Esfera","Cilindro","Cone","Plano"};
     @Override public void onCreate(Bundle state){
@@ -49,7 +49,7 @@ public final class MainActivity extends Activity implements View3D.Listener {
         setContentView(main);
         LinearLayout header=row();header.setGravity(Gravity.CENTER_VERTICAL);header.setPadding(dp(14),0,dp(10),0);
         TextView title=label("Redblen",20,TEXT,true);header.addView(title,new LinearLayout.LayoutParams(0,-2,1));
-        TextView version=label("0.1",11,MUTED,false);header.addView(version);
+        TextView version=label("0.2",11,MUTED,false);header.addView(version);
         header.addView(space(8,1));
         header.addView(button("↶",false,()->{if(scene.undo())refreshAll();else toast("Nada para desfazer");}),new LinearLayout.LayoutParams(dp(42),dp(40)));
         header.addView(button("↷",false,()->{if(scene.redo())refreshAll();else toast("Nada para refazer");}),new LinearLayout.LayoutParams(dp(42),dp(40)));
@@ -65,47 +65,45 @@ public final class MainActivity extends Activity implements View3D.Listener {
         FrameLayout.LayoutParams hud=new FrameLayout.LayoutParams(-2,dp(34),Gravity.TOP|Gravity.LEFT);
         hud.setMargins(dp(12),dp(12),0,0);stage.addView(info,hud);
         selectionLabel=label("Cubo",12,MUTED,false);info.addView(selectionLabel);
-        TextView legend=label("1 dedo: orbitar · 2 dedos: zoom / pan",11,MUTED,false);
-        legend.setPadding(dp(8),dp(7),dp(8),dp(7));legend.setBackground(bg(PANEL,10,0));
-        FrameLayout.LayoutParams legendParams=new FrameLayout.LayoutParams(-2,-2,Gravity.TOP|Gravity.RIGHT);
-        legendParams.setMargins(0,dp(57),dp(10),0);stage.addView(legend,legendParams);
         main.addView(stage,new LinearLayout.LayoutParams(-1,0,1));
 
         HorizontalScrollView h=new HorizontalScrollView(this);h.setHorizontalScrollBarEnabled(false);
         tools=row();tools.setGravity(Gravity.CENTER_VERTICAL);tools.setPadding(dp(8),0,dp(8),0);
-        h.addView(tools);main.addView(h,new LinearLayout.LayoutParams(-1,dp(58)));
+        h.addView(tools);main.addView(h,new LinearLayout.LayoutParams(-1,dp(52)));
+        axisBar=row();axisBar.setGravity(Gravity.CENTER_VERTICAL);axisBar.setPadding(dp(9),0,dp(9),dp(5));
+        main.addView(axisBar,new LinearLayout.LayoutParams(-1,dp(43)));
+        axisBar.setVisibility(View.GONE);
         LinearLayout bar=row();bar.setGravity(Gravity.CENTER);bar.setPadding(dp(4),0,dp(4),dp(3));
         bar.setBackgroundColor(PANEL);
         addNav(bar,"＋ Objeto",()->openSheet("add"));
         addNav(bar,"Cena",()->openSheet("scene"));
         addNav(bar,"Propriedades",()->openSheet("properties"));
         addNav(bar,"Arquivo",()->openSheet("file"));
-        main.addView(bar,new LinearLayout.LayoutParams(-1,dp(62)));
+        main.addView(bar,new LinearLayout.LayoutParams(-1,dp(55)));
         renderModes();renderTools();
     }
     private void renderModes(){
         modes.removeAllViews();
         modeButton("Objeto",Scene.Mode.OBJECT);modeButton("Vértice",Scene.Mode.VERTEX);modeButton("Face",Scene.Mode.FACE);
         View spacer=new View(this);modes.addView(spacer,new LinearLayout.LayoutParams(0,1,1));
-        modes.addView(button("Centralizar",false,()->viewport.focus()),new LinearLayout.LayoutParams(-2,dp(34)));
+        modes.addView(button("◎ Câmera",false,()->openSheet("camera")),new LinearLayout.LayoutParams(-2,dp(34)));
     }
     private void modeButton(String name,Scene.Mode mode){
         boolean active=scene.mode==mode;
         TextView v=button(name,active,()->{
             scene.mode=mode;scene.selectedFace=-1;scene.selectedVertex=-1;
-            if(mode!=Scene.Mode.OBJECT&&scene.tool!=Scene.Tool.MOVE)scene.tool=Scene.Tool.ORBIT;
+            if(mode!=Scene.Mode.OBJECT&&(scene.tool==Scene.Tool.ROTATE||scene.tool==Scene.Tool.SCALE))scene.tool=Scene.Tool.ORBIT;
             renderModes();renderTools();viewport.refresh();updateLabel();
         });
         LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-2,dp(34));lp.rightMargin=dp(5);modes.addView(v,lp);
     }
     private void renderTools(){
         tools.removeAllViews();
-        toolButton("Orbitar",Scene.Tool.ORBIT);
+        toolButton("Órbita",Scene.Tool.ORBIT);
         toolButton("Mover",Scene.Tool.MOVE);
         if(scene.mode==Scene.Mode.OBJECT){
-            toolButton("Girar",Scene.Tool.ROTATE);toolButton("Escala",Scene.Tool.SCALE);
-            addAction(tools,"Duplicar",()->{scene.duplicate();refreshAll();});
-            addAction(tools,"Excluir",()->{scene.delete();refreshAll();});
+            toolButton("Girar",Scene.Tool.ROTATE);
+            toolButton("Escala",Scene.Tool.SCALE);
         }else if(scene.mode==Scene.Mode.FACE){
             addAction(tools,"Extrudar",()->faceOperation("extrude"));
             addAction(tools,"Inset",()->faceOperation("inset"));
@@ -118,9 +116,33 @@ public final class MainActivity extends Activity implements View3D.Listener {
                 p.mesh.moveVertex(v,0,-p.mesh.vertices[3*v+1],0);refreshAll();
             });
         }
+        renderAxisBar();
+    }
+    private void renderAxisBar(){
+        axisBar.removeAllViews();
+        if(scene.mode!=Scene.Mode.OBJECT||scene.tool!=Scene.Tool.SCALE){
+            axisBar.setVisibility(View.GONE);
+            return;
+        }
+        axisBar.setVisibility(View.VISIBLE);
+        TextView label=label("Eixo",11,MUTED,true);
+        label.setPadding(dp(4),0,dp(8),0);
+        axisBar.addView(label);
+        axisOption("XYZ",Scene.ScaleAxis.ALL);
+        axisOption("X",Scene.ScaleAxis.X);
+        axisOption("Y",Scene.ScaleAxis.Y);
+        axisOption("Z",Scene.ScaleAxis.Z);
+    }
+    private void axisOption(String name,Scene.ScaleAxis axis){
+        TextView item=button(name,scene.scaleAxis==axis,()->{
+            scene.scaleAxis=axis;renderAxisBar();updateLabel();
+        });
+        LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(0,dp(33),1);
+        params.rightMargin=dp(4);
+        axisBar.addView(item,params);
     }
     private void toolButton(String name,Scene.Tool tool){
-        addChip(tools,name,scene.tool==tool,()->{scene.tool=tool;renderTools();updateLabel();});
+        addChip(tools,name,scene.tool==tool,()->{scene.tool=tool;viewport.cancelPickAnchor();renderTools();updateLabel();});
     }
     private void addAction(LinearLayout row,String text,Runnable action){addChip(row,text,false,action);}
     private void addChip(LinearLayout row,String text,boolean highlighted,Runnable action){
@@ -151,7 +173,7 @@ public final class MainActivity extends Activity implements View3D.Listener {
         LinearLayout body=new LinearLayout(this);body.setOrientation(LinearLayout.VERTICAL);
         body.setPadding(dp(16),dp(13),dp(16),dp(14));scroll.addView(body);
         LinearLayout heading=row();heading.setGravity(Gravity.CENTER_VERTICAL);
-        String label=key.equals("add")?"Adicionar objeto":key.equals("scene")?"Cena / Objetos":key.equals("properties")?"Propriedades":"Arquivos / Projeto";
+        String label=key.equals("add")?"Adicionar objeto":key.equals("scene")?"Cena":key.equals("properties")?"Propriedades":key.equals("camera")?"Câmera e âncora":"Arquivos";
         TextView caption=label(label,16,TEXT,true);heading.addView(caption,new LinearLayout.LayoutParams(0,-2,1));
         heading.addView(button("Fechar ×",false,()->closeSheet()));
         body.addView(heading);
@@ -161,8 +183,9 @@ public final class MainActivity extends Activity implements View3D.Listener {
             case "scene":panelScene(body);break;
             case "properties":panelProperties(body);break;
             case "file":panelFile(body);break;
+            case "camera":panelCamera(body);break;
         }
-        FrameLayout.LayoutParams lp=new FrameLayout.LayoutParams(-1,dp(key.equals("properties")?315:260),Gravity.BOTTOM);
+        FrameLayout.LayoutParams lp=new FrameLayout.LayoutParams(-1,dp(key.equals("properties")?315:key.equals("camera")?345:260),Gravity.BOTTOM);
         lp.setMargins(dp(8),0,dp(8),dp(6));stage.addView(scroll,lp);sheet=scroll;
     }
     private void closeSheet(){if(sheet!=null)stage.removeView(sheet);sheet=null;sheetName="";}
@@ -187,12 +210,20 @@ public final class MainActivity extends Activity implements View3D.Listener {
         for(int i=0;i<scene.objects.size();i++){
             final int index=i;Scene.Part p=scene.objects.get(i);
             LinearLayout row=row();row.setGravity(Gravity.CENTER_VERTICAL);
-            TextView visible=button(p.visible?"◉":"○",false,()->{p.visible=!p.visible;refreshAll();openSheetRefresh();});
+            TextView visible=button(p.visible?"◉":"○",false,()->{scene.checkpoint();p.visible=!p.visible;refreshAll();});
             row.addView(visible,new LinearLayout.LayoutParams(dp(46),dp(37)));
-            TextView name=button(p.name,i==scene.selected,()->{scene.selected=index;scene.selectedFace=-1;scene.selectedVertex=-1;refreshAll();openSheetRefresh();});
+            TextView name=button(p.name,i==scene.selected,()->{scene.selected=index;scene.selectedFace=-1;scene.selectedVertex=-1;refreshAll();});
             row.addView(name,new LinearLayout.LayoutParams(0,dp(37),1));
             LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,dp(42));body.addView(row,lp);
         }
+        body.addView(space(1,6));
+        LinearLayout actions=row();
+        TextView duplicate=button("Duplicar",false,()->{scene.duplicate();refreshAll();});
+        TextView remove=button("Excluir",false,()->{scene.delete();refreshAll();});
+        actions.addView(duplicate,new LinearLayout.LayoutParams(0,dp(40),1));
+        actions.addView(space(8,1));
+        actions.addView(remove,new LinearLayout.LayoutParams(0,dp(40),1));
+        body.addView(actions);
     }
     private void panelProperties(LinearLayout body){
         Scene.Part p=scene.current();
@@ -247,6 +278,57 @@ public final class MainActivity extends Activity implements View3D.Listener {
         }
         return out;
     }
+    private void panelCamera(LinearLayout body){
+        body.addView(label("NAVEGAÇÃO",10,MUTED,true));
+        body.addView(space(1,7));
+        LinearLayout modes=row();
+        cameraOption(modes,"Órbita",Scene.Tool.ORBIT);
+        cameraOption(modes,"Pan",Scene.Tool.PAN);
+        cameraOption(modes,"Olhar livre",Scene.Tool.LOOK);
+        body.addView(modes);
+        body.addView(space(1,9));
+        body.addView(label("1 dedo: modo escolhido  ·  2 dedos: pan e zoom",11,MUTED,false));
+        body.addView(space(1,9));
+        LinearLayout zoom=row();
+        zoom.addView(button("− Afastar",false,()->viewport.dolly(1.25f)),new LinearLayout.LayoutParams(0,dp(38),1));
+        zoom.addView(space(6,1));
+        zoom.addView(button("＋ Aproximar",false,()->viewport.dolly(.8f)),new LinearLayout.LayoutParams(0,dp(38),1));
+        zoom.addView(space(6,1));
+        zoom.addView(button("Redefinir",false,()->{viewport.resetCamera();refreshAll();}),new LinearLayout.LayoutParams(0,dp(38),1));
+        body.addView(zoom);
+        body.addView(space(1,12));
+        body.addView(label("ÂNCORA / CENTRO DA CÂMERA",10,MUTED,true));
+        body.addView(space(1,5));
+        LinearLayout anchorActions=row();
+        anchorActions.addView(button("Escolher na cena",true,()->{
+            viewport.beginPickAnchor();closeSheet();updateLabel();
+            toast("Toque em um objeto ou no chão para definir o centro");
+        }),new LinearLayout.LayoutParams(0,dp(39),1));
+        anchorActions.addView(space(6,1));
+        anchorActions.addView(button("Seleção",false,()->{
+            if(!viewport.anchorSelection())toast("Selecione um objeto ou componente");
+            else {closeSheet();updateLabel();}
+        }),new LinearLayout.LayoutParams(0,dp(39),1));
+        body.addView(anchorActions);
+        EditText[] coords=vectorFields(body,"COORDENADAS DO CENTRO · X / Y / Z",viewport.anchor());
+        body.addView(space(1,7));
+        LinearLayout coordinates=row();
+        coordinates.addView(button("Aplicar centro",true,()->{
+            try{float[] v=parseVector(coords);viewport.setAnchor(v[0],v[1],v[2]);closeSheet();updateLabel();}
+            catch(Exception e){toast("Coordenadas inválidas");}
+        }),new LinearLayout.LayoutParams(0,dp(38),1));
+        coordinates.addView(space(6,1));
+        coordinates.addView(button("Origem 0,0,0",false,()->{viewport.setAnchor(0,0,0);closeSheet();updateLabel();}),
+            new LinearLayout.LayoutParams(0,dp(38),1));
+        body.addView(coordinates);
+    }
+    private void cameraOption(LinearLayout row,String name,Scene.Tool tool){
+        TextView option=button(name,scene.tool==tool,()->{
+            scene.tool=tool;viewport.cancelPickAnchor();closeSheet();refreshAll();
+        });
+        LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(0,dp(40),1);
+        params.rightMargin=dp(5);row.addView(option,params);
+    }
     private void panelFile(LinearLayout body){
         LinearLayout a=row();a.addView(button("Novo",false,()->newProject()),new LinearLayout.LayoutParams(0,dp(44),1));
         a.addView(space(7,1));a.addView(button("Salvar local",true,()->{saveAutosave();toast("Projeto salvo no app");}),new LinearLayout.LayoutParams(0,dp(44),1));
@@ -267,7 +349,7 @@ public final class MainActivity extends Activity implements View3D.Listener {
             .setNegativeButton("Cancelar",null)
             .setPositiveButton("Criar",(d,w)->{
                 scene.checkpoint();scene.objects.clear();scene.add("Cubo",false);
-                scene.mode=Scene.Mode.OBJECT;scene.tool=Scene.Tool.ORBIT;
+                scene.mode=Scene.Mode.OBJECT;scene.tool=Scene.Tool.ORBIT;scene.scaleAxis=Scene.ScaleAxis.ALL;
                 viewport.resetCamera();closeSheet();refreshAll();saveAutosave();
             }).show();
     }
@@ -275,11 +357,15 @@ public final class MainActivity extends Activity implements View3D.Listener {
     private void updateLabel(){
         Scene.Part p=scene.current();
         String suffix=scene.mode==Scene.Mode.FACE?" · Face "+(scene.selectedFace+1):scene.mode==Scene.Mode.VERTEX?" · Vértice "+(scene.selectedVertex+1):"";
-        selectionLabel.setText(p==null?"Nenhum objeto":p.name+suffix);
+        String mode=scene.tool==Scene.Tool.PAN?" · Pan":scene.tool==Scene.Tool.LOOK?" · Olhar":
+            scene.tool==Scene.Tool.SCALE?" · Escala "+scene.scaleAxis.name():"";
+        selectionLabel.setText(viewport.isPickingAnchor()?"Toque para ancorar":
+            (p==null?"Cena":p.name+suffix)+mode);
     }
     private void refreshAll(){renderModes();renderTools();updateLabel();viewport.refresh();if(sheet!=null)openSheetRefresh();}
     @Override public void onSelectionChanged(){refreshAll();}
     @Override public void onDocumentChanged(){updateLabel();}
+    @Override public void onAnchorChanged(){if(selectionLabel!=null)updateLabel();}
     private void openDocument(int request,String type){
         Intent intent=new Intent(Intent.ACTION_OPEN_DOCUMENT);
         intent.setType(type);intent.addCategory(Intent.CATEGORY_OPENABLE);

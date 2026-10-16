@@ -110,7 +110,9 @@ public final class View3D extends GLSurfaceView {
                 didDrag=false;hadMultiTouch=false;historySaved=false;lastSpan=0f;
                 dragOnSelected=false;sculptOnMesh=false;
                 if(!anchorPick&&!addVertexPick&&scene.mode==Scene.Mode.SCULPT&&scene.tool==Scene.Tool.SCULPT){
-                    sculptOnMesh=applySculpt(downX,downY);
+                    // Delay the first dab until a drag or tap completes:
+                    // placing the first finger of a pinch must not deform the mesh.
+                    sculptOnMesh=engine.pickSurfaceOnSelected(downX,downY)!=null;
                     return true;
                 }
                 Scene.Part downPart=scene.current();
@@ -271,6 +273,7 @@ public final class View3D extends GLSurfaceView {
                         }
                         listener.onSelectionChanged();refresh();
                     }else if(scene.mode==Scene.Mode.SCULPT){
+                        if(sculptOnMesh&&scene.tool==Scene.Tool.SCULPT)applySculpt(tapX,tapY);
                         refresh();
                     }else{
                         int[] hit=engine.pickFace(tapX,tapY);

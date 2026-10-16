@@ -109,6 +109,13 @@ public final class MainActivity extends Activity implements View3D.Listener {
         boolean active=scene.mode==mode;
         TextView v=button(name,active,()->{
             if(mode==Scene.Mode.SCULPT&&scene.current()==null){toast("Selecione um modelo antes de esculpir");return;}
+            if(mode==Scene.Mode.SCULPT&&scene.current()!=null&&scene.current().mesh.vertexCount()<16){
+                scene.checkpoint();
+                MeshEditing.subdivide(scene.current().mesh);
+                MeshEditing.subdivide(scene.current().mesh);
+                scene.selectedVertices.clear();scene.selectedVertex=-1;
+                toast("Malha refinada para escultura · ↶ permite desfazer");
+            }
             scene.mode=mode;scene.selectedFace=-1;
             if(mode==Scene.Mode.SCULPT)scene.tool=Scene.Tool.SCULPT;
             else if(scene.tool==Scene.Tool.SCULPT||(mode!=Scene.Mode.OBJECT&&

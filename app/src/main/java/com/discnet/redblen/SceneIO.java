@@ -136,7 +136,10 @@ public final class SceneIO {
         }
         scene.objects.clear();scene.objects.addAll(checked.objects);
         scene.selected=checked.selected;
-        scene.selectedFace=-1;scene.selectedVertex=-1;
+        scene.selectedFace=-1;scene.selectedVertex=-1;scene.selectedVertices.clear();
+        scene.symmetryMask=checked.symmetryMask;scene.radialCopies=checked.radialCopies;
+        scene.multiSelect=checked.multiSelect;scene.brushRadius=checked.brushRadius;
+        scene.brushStrength=checked.brushStrength;scene.sculptBrush=checked.sculptBrush;
     }
 
     public static void writeObj(Scene scene,Writer output)throws IOException{

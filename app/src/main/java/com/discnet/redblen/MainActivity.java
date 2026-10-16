@@ -51,7 +51,7 @@ public final class MainActivity extends Activity implements View3D.Listener {
         setContentView(main);
         LinearLayout header=row();header.setGravity(Gravity.CENTER_VERTICAL);header.setPadding(dp(14),0,dp(10),0);
         TextView title=label("Redblen",20,TEXT,true);header.addView(title,new LinearLayout.LayoutParams(0,-2,1));
-        TextView version=label("0.3",11,MUTED,false);header.addView(version);
+        TextView version=label("0.4",11,MUTED,false);header.addView(version);
         header.addView(space(5,1));
         TextView delete=button("Excluir",false,()->{
             if(scene.current()==null){toast("Selecione um objeto");return;}
@@ -66,8 +66,11 @@ public final class MainActivity extends Activity implements View3D.Listener {
         header.addView(button("↷",false,()->{if(scene.redo())refreshAll();else toast("Nada para refazer");}),new LinearLayout.LayoutParams(dp(42),dp(40)));
         main.addView(header,new LinearLayout.LayoutParams(-1,dp(54)));
 
-        modes=row();modes.setGravity(Gravity.CENTER_VERTICAL);modes.setPadding(dp(12),0,dp(12),0);
-        main.addView(modes,new LinearLayout.LayoutParams(-1,dp(46)));
+        HorizontalScrollView modeScroll=new HorizontalScrollView(this);
+        modeScroll.setHorizontalScrollBarEnabled(false);
+        modes=row();modes.setGravity(Gravity.CENTER_VERTICAL);modes.setPadding(dp(8),0,dp(8),0);
+        modeScroll.addView(modes);
+        main.addView(modeScroll,new LinearLayout.LayoutParams(-1,dp(46)));
 
         stage=new FrameLayout(this);viewport=new View3D(this,scene,this);
         stage.addView(viewport,new FrameLayout.LayoutParams(-1,-1));
@@ -96,39 +99,86 @@ public final class MainActivity extends Activity implements View3D.Listener {
     }
     private void renderModes(){
         modes.removeAllViews();
-        modeButton("Objeto",Scene.Mode.OBJECT);modeButton("Vértice",Scene.Mode.VERTEX);modeButton("Face",Scene.Mode.FACE);
-        View spacer=new View(this);modes.addView(spacer,new LinearLayout.LayoutParams(0,1,1));
+        modeButton("Objeto",Scene.Mode.OBJECT);
+        modeButton("Vértice",Scene.Mode.VERTEX);
+        modeButton("Face",Scene.Mode.FACE);
+        modeButton("Esculpir",Scene.Mode.SCULPT);
         modes.addView(button("◎ Câmera",false,()->openSheet("camera")),new LinearLayout.LayoutParams(-2,dp(34)));
     }
     private void modeButton(String name,Scene.Mode mode){
         boolean active=scene.mode==mode;
         TextView v=button(name,active,()->{
-            scene.mode=mode;scene.selectedFace=-1;scene.selectedVertex=-1;
-            if(mode!=Scene.Mode.OBJECT&&(scene.tool==Scene.Tool.ROTATE||scene.tool==Scene.Tool.SCALE))scene.tool=Scene.Tool.ORBIT;
+            if(mode==Scene.Mode.SCULPT&&scene.current()==null){toast("Selecione um modelo antes de esculpir");return;}
+            scene.mode=mode;scene.selectedFace=-1;
+            if(mode==Scene.Mode.SCULPT)scene.tool=Scene.Tool.SCULPT;
+            else if(scene.tool==Scene.Tool.SCULPT||(mode!=Scene.Mode.OBJECT&&
+                (scene.tool==Scene.Tool.ROTATE||scene.tool==Scene.Tool.SCALE)))scene.tool=Scene.Tool.ORBIT;
             renderModes();renderTools();viewport.refresh();updateLabel();
         });
         LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-2,dp(34));lp.rightMargin=dp(5);modes.addView(v,lp);
     }
     private void renderTools(){
         tools.removeAllViews();
-        toolButton("Órbita",Scene.Tool.ORBIT);
-        toolButton("Mover",Scene.Tool.MOVE);
-        if(scene.mode==Scene.Mode.OBJECT){
-            toolButton("Girar",Scene.Tool.ROTATE);
-            toolButton("Escala",Scene.Tool.SCALE);
-        }else if(scene.mode==Scene.Mode.FACE){
-            addAction(tools,"Extrudar",()->faceOperation("extrude"));
-            addAction(tools,"Inset",()->faceOperation("inset"));
-            addAction(tools,"Inverter",()->faceOperation("flip"));
+        if(scene.mode==Scene.Mode.SCULPT){
+            sculptChip("Puxar",Scene.SculptBrush.PULL);
+            sculptChip("Empurrar",Scene.SculptBrush.PUSH);
+            sculptChip("Suavizar",Scene.SculptBrush.SMOOTH);
+            addAction(tools,"Pincel · Ajustes",()->openSheet("sculpt"));
+            addAction(tools,"Simetria",()->openSheet("symmetry"));
+            addAction(tools,"Refinar",()->refineMesh());
         }else{
-            addAction(tools,"Y = 0",()->{
-                Scene.Part p=scene.current();
-                if(p==null||scene.selectedVertex<0){toast("Selecione um vértice");return;}
-                int v=scene.selectedVertex;scene.checkpoint();
-                p.mesh.moveVertex(v,0,-p.mesh.vertices[3*v+1],0);refreshAll();
-            });
+            toolButton("Órbita",Scene.Tool.ORBIT);
+            toolButton("Mover",Scene.Tool.MOVE);
+            if(scene.mode==Scene.Mode.OBJECT){
+                toolButton("Girar",Scene.Tool.ROTATE);
+                toolButton("Escala",Scene.Tool.SCALE);
+            }else if(scene.mode==Scene.Mode.FACE){
+                addAction(tools,"Extrudar",()->faceOperation("extrude"));
+                addAction(tools,"Inset",()->faceOperation("inset"));
+                addAction(tools,"Inverter",()->faceOperation("flip"));
+                addAction(tools,"Simetria",()->openSheet("symmetry"));
+                addAction(tools,"＋ Vértice",()->startVertexInsertion());
+            }else{
+                addChip(tools,scene.multiSelect?"✓ Seleção múltipla":"Seleção múltipla",
+                    scene.multiSelect,()->{
+                        scene.multiSelect=!scene.multiSelect;renderTools();updateLabel();
+                    });
+                addAction(tools,"＋ Vértice",()->startVertexInsertion());
+                addAction(tools,"Todos",()->{
+                    Scene.Part part=scene.current();if(part==null)return;
+                    scene.selectedVertices.clear();
+                    for(int i=0;i<part.mesh.vertexCount();i++)scene.selectedVertices.add(i);
+                    scene.selectedVertex=part.mesh.vertexCount()>0?0:-1;refreshAll();
+                });
+                addAction(tools,"Limpar",()->{
+                    scene.selectedVertices.clear();scene.selectedVertex=-1;refreshAll();
+                });
+                addAction(tools,"Simetria",()->openSheet("symmetry"));
+                addAction(tools,"Refinar",()->refineMesh());
+            }
         }
         renderAxisBar();
+    }
+    private void sculptChip(String title,Scene.SculptBrush brush){
+        addChip(tools,title,scene.sculptBrush==brush&&scene.tool==Scene.Tool.SCULPT,()->{
+            scene.sculptBrush=brush;scene.tool=Scene.Tool.SCULPT;
+            renderTools();updateLabel();
+        });
+    }
+    private void startVertexInsertion(){
+        if(scene.current()==null){toast("Selecione um objeto primeiro");return;}
+        viewport.beginAddVertex();closeSheet();
+        toast("Toque em uma face para inserir um vértice conectado");
+    }
+    private void refineMesh(){
+        Scene.Part p=scene.current();if(p==null){toast("Selecione um modelo");return;}
+        if(p.mesh.vertexCount()>MeshEditing.MAX_VERTICES/2){
+            toast("Limite de malha · máximo 6500 vértices");return;
+        }
+        scene.checkpoint();
+        if(!MeshEditing.subdivide(p.mesh)){toast("Limite de malha atingido");return;}
+        scene.selectedVertices.clear();scene.selectedVertex=-1;scene.selectedFace=-1;
+        refreshAll();saveAutosave();toast("Malha refinada · "+p.mesh.vertexCount()+" vértices");
     }
     private void renderAxisBar(){
         axisBar.removeAllViews();
@@ -166,10 +216,9 @@ public final class MainActivity extends Activity implements View3D.Listener {
         if(p==null||face<0||face>=p.mesh.faces.size()){toast("Toque em uma face primeiro");return;}
         if(p.mesh.vertexCount()>49000){toast("Malha excede o limite de edição");return;}
         scene.checkpoint();
-        if(operation.equals("extrude"))scene.selectedFace=p.mesh.extrudeFace(face,0.45f);
-        else if(operation.equals("inset"))scene.selectedFace=p.mesh.insetFace(face,0.22f);
-        else p.mesh.flipFace(face);
-        refreshAll();
+        int changed=MeshEditing.editMirroredFaces(p.mesh,face,operation,scene.symmetryMask,scene.radialCopies);
+        if(changed>0){refreshAll();saveAutosave();}
+        else toast("Limite de geometria atingido");
     }
     private void addNav(LinearLayout bar,String title,Runnable onTap){
         TextView v=button(title,false,onTap);v.setTextSize(12);
@@ -185,7 +234,7 @@ public final class MainActivity extends Activity implements View3D.Listener {
         LinearLayout body=new LinearLayout(this);body.setOrientation(LinearLayout.VERTICAL);
         body.setPadding(dp(16),dp(13),dp(16),dp(14));scroll.addView(body);
         LinearLayout heading=row();heading.setGravity(Gravity.CENTER_VERTICAL);
-        String label=key.equals("add")?"Adicionar objeto":key.equals("scene")?"Cena":key.equals("properties")?"Propriedades":key.equals("camera")?"Câmera e âncora":key.equals("material")?"Materiais":"Arquivos";
+        String label=key.equals("add")?"Adicionar objeto":key.equals("scene")?"Cena":key.equals("properties")?"Propriedades":key.equals("camera")?"Câmera e âncora":key.equals("material")?"Materiais":key.equals("symmetry")?"Simetria":key.equals("sculpt")?"Pincel de escultura":"Arquivos";
         TextView caption=label(label,16,TEXT,true);heading.addView(caption,new LinearLayout.LayoutParams(0,-2,1));
         heading.addView(button("Fechar ×",false,()->closeSheet()));
         body.addView(heading);
@@ -197,9 +246,12 @@ public final class MainActivity extends Activity implements View3D.Listener {
             case "file":panelFile(body);break;
             case "camera":panelCamera(body);break;
             case "material":panelMaterial(body);break;
+            case "symmetry":panelSymmetry(body);break;
+            case "sculpt":panelSculpt(body);break;
         }
         int height=key.equals("material")?Math.min(dp(600),(int)(getResources().getDisplayMetrics().heightPixels*.73f))
-            :dp(key.equals("properties")?315:key.equals("camera")?345:260);
+            :dp(key.equals("properties")?315:key.equals("camera")?345:key.equals("sculpt")?285:
+                 key.equals("symmetry")?320:260);
         FrameLayout.LayoutParams lp=new FrameLayout.LayoutParams(-1,height,Gravity.BOTTOM);
         lp.setMargins(dp(8),0,dp(8),dp(6));stage.addView(scroll,lp);sheet=scroll;
     }
@@ -429,6 +481,62 @@ public final class MainActivity extends Activity implements View3D.Listener {
             }).show();
     }
 
+    private void panelSymmetry(LinearLayout body){
+        body.addView(label("PLANOS DE SIMETRIA · podem ser combinados",11,MUTED,true));
+        body.addView(space(1,12));
+        LinearLayout axes=row();
+        symmetryChip(axes,"Espelhar X",1);
+        symmetryChip(axes,"Espelhar Y",2);
+        symmetryChip(axes,"Espelhar Z",4);
+        body.addView(axes);
+        body.addView(space(1,13));
+        body.addView(label("SIMETRIA ROTACIONAL · em torno do eixo Y",11,MUTED,true));
+        body.addView(space(1,9));
+        LinearLayout ring=row();
+        for(int copies:new int[]{1,2,4,6,8}){
+            TextView v=button(copies==1?"Off":copies+"×",scene.radialCopies==copies,()->{
+                scene.radialCopies=copies;viewport.refresh();openSheetRefresh();
+            });
+            LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,dp(38),1);lp.rightMargin=dp(4);
+            ring.addView(v,lp);
+        }
+        body.addView(ring);
+        body.addView(space(1,14));
+        body.addView(label("Espelhos X, Y, Z e suas combinações (XY, XZ, YZ, XYZ). A rotação replica a edição 2, 4, 6 ou 8 vezes.",12,TEXT,false));
+        body.addView(space(1,10));
+        body.addView(label("Centro de simetria: origem local (0,0,0) do objeto. Para editar os dois lados, a malha deve possuir vértices correspondentes. Use em malhas simétricas.",11,MUTED,false));
+    }
+    private void symmetryChip(LinearLayout row,String title,int bit){
+        TextView v=button(title,(scene.symmetryMask&bit)!=0,()->{
+            scene.symmetryMask^=bit;viewport.refresh();openSheetRefresh();
+        });
+        LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,dp(42),1);lp.rightMargin=dp(6);
+        row.addView(v,lp);
+    }
+    private void panelSculpt(LinearLayout body){
+        body.addView(label("PINCÉIS",11,MUTED,true));
+        body.addView(space(1,9));
+        LinearLayout brushes=row();
+        for(Scene.SculptBrush b:Scene.SculptBrush.values()){
+            String title=b==Scene.SculptBrush.PULL?"Puxar":b==Scene.SculptBrush.PUSH?"Empurrar":"Suavizar";
+            TextView button=button(title,scene.sculptBrush==b,()->{
+                scene.sculptBrush=b;scene.tool=Scene.Tool.SCULPT;
+                renderTools();openSheetRefresh();
+            });
+            LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,dp(38),1);lp.rightMargin=dp(5);
+            brushes.addView(button,lp);
+        }
+        body.addView(brushes);body.addView(space(1,12));
+        materialSlider(body,"Raio do pincel",scene.brushRadius,15,300,"x100",
+            v->scene.brushRadius=v);
+        materialSlider(body,"Força do pincel",scene.brushStrength,1,100,"%",
+            v->scene.brushStrength=v);
+        body.addView(space(1,9));
+        body.addView(label("Arraste sobre a superfície para modelar. Use dois dedos para mover/zoom. Escolha Órbita para navegar com um dedo.",12,MUTED,false));
+        body.addView(space(1,8));
+        body.addView(button("Configurar simetria →",false,()->openSheet("symmetry")),
+            new LinearLayout.LayoutParams(-1,dp(41)));
+    }
     private void panelCamera(LinearLayout body){
         body.addView(label("NAVEGAÇÃO",10,MUTED,true));
         body.addView(space(1,7));
@@ -501,16 +609,19 @@ public final class MainActivity extends Activity implements View3D.Listener {
             .setPositiveButton("Criar",(d,w)->{
                 scene.checkpoint();scene.objects.clear();scene.add("Cubo",false);
                 scene.mode=Scene.Mode.OBJECT;scene.tool=Scene.Tool.ORBIT;scene.scaleAxis=Scene.ScaleAxis.ALL;
+                scene.selectedVertices.clear();
                 viewport.resetCamera();closeSheet();refreshAll();saveAutosave();
             }).show();
     }
     private void openSheetRefresh(){String key=sheetName;if(sheet!=null){stage.removeView(sheet);sheet=null;sheetName="";openSheet(key);}}
     private void updateLabel(){
         Scene.Part p=scene.current();
-        String suffix=scene.mode==Scene.Mode.FACE?" · Face "+(scene.selectedFace+1):scene.mode==Scene.Mode.VERTEX?" · Vértice "+(scene.selectedVertex+1):"";
+        String suffix=scene.mode==Scene.Mode.FACE?" · Face "+(scene.selectedFace+1):
+            scene.mode==Scene.Mode.VERTEX?" · "+scene.selectedVertices.size()+" vértices":
+            scene.mode==Scene.Mode.SCULPT?" · Esculpir":"";
         String mode=scene.tool==Scene.Tool.PAN?" · Pan":scene.tool==Scene.Tool.LOOK?" · Olhar":
             scene.tool==Scene.Tool.SCALE?" · Escala "+scene.scaleAxis.name():"";
-        selectionLabel.setText(viewport.isPickingAnchor()?"Toque para ancorar":
+        selectionLabel.setText(viewport.isAddingVertex()?"Toque na face para adicionar vértice":viewport.isPickingAnchor()?"Toque para ancorar":
             (p==null?"Cena":p.name+suffix)+mode);
     }
     private void refreshAll(){renderModes();renderTools();updateLabel();viewport.refresh();if(sheet!=null)openSheetRefresh();}

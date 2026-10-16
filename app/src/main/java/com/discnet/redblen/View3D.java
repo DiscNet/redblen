@@ -1,6 +1,11 @@
 package com.discnet.redblen;
 
 import android.content.Context;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.opengl.GLUtils;
+import java.io.File;
+import java.util.HashMap;
 import android.opengl.GLES20;
 import android.opengl.GLSurfaceView;
 import android.opengl.Matrix;
@@ -35,7 +40,7 @@ public final class View3D extends GLSurfaceView {
         setEGLContextClientVersion(2);
         setEGLConfigChooser(8,8,8,8,16,0);
         setPreserveEGLContextOnPause(true);
-        engine=new Engine(scene);
+        engine=new Engine(scene,c.getApplicationContext());
         setRenderer(engine);
         setRenderMode(RENDERMODE_WHEN_DIRTY);
     }
@@ -243,16 +248,21 @@ public final class View3D extends GLSurfaceView {
         volatile float yaw=0.65f,pitch=0.34f,distance=8.5f;
         volatile float[] target={0,0,0};
         volatile int width=1,height=1;
-        private int program,aPos,aNormal,uMVP,uModel,uColor,uFlat,uSize;
+        private int program,aPos,aNormal,uMVP,uModel,uNormalMat,uColor,uFlat,uSize;
+        private int uMetallic,uRoughness,uReflectivity,uEmission,uOpacity,uTexMix,uRepeat,uTexRotation,uUseTex,uTex,uEye;
+        private final Context context;
+        private final HashMap<String,Integer> textureCache=new HashMap<>();
         private final float[] proj=new float[16],view=new float[16],vp=new float[16],model=new float[16],mvp=new float[16];
-        Engine(Scene scene){this.scene=scene;}
+        Engine(Scene scene,Context context){this.scene=scene;this.context=context;}
 
         @Override public void onSurfaceCreated(GL10 ignored,EGLConfig config){
             GLES20.glClearColor(0.062f,0.071f,0.083f,1f);
             GLES20.glEnable(GLES20.GL_DEPTH_TEST);
             GLES20.glDepthFunc(GLES20.GL_LEQUAL);
-            String vs="attribute vec3 aPos; attribute vec3 aNormal; uniform mat4 uMVP; uniform mat4 uModel; uniform float uSize; varying vec3 vN; void main(){gl_Position=uMVP*vec4(aPos,1.0); vN=mat3(uModel)*aNormal; gl_PointSize=uSize;}";
-            String fs="precision mediump float; varying vec3 vN; uniform vec4 uColor; uniform float uFlat; void main(){float diffuse=max(dot(normalize(vN),normalize(vec3(0.4,0.8,0.65))),0.0); vec3 c=uColor.rgb*(0.36+0.64*diffuse); gl_FragColor=vec4(mix(c,uColor.rgb,uFlat),uColor.a);}";
+            textureCache.clear();
+            GLES20.glEnable(GLES20.GL_BLEND);
+            GLES20.glBlendFunc(GLES20.GL_SRC_ALPHA,GLES20.GL_ONE_MINUS_SRC_ALPHA);
+            String vs=MaterialShaders.VERTEX,fs=MaterialShaders.FRAGMENT;
             int v=shader(GLES20.GL_VERTEX_SHADER,vs),f=shader(GLES20.GL_FRAGMENT_SHADER,fs);
             program=GLES20.glCreateProgram();GLES20.glAttachShader(program,v);GLES20.glAttachShader(program,f);GLES20.glLinkProgram(program);
             int[] status=new int[1];GLES20.glGetProgramiv(program,GLES20.GL_LINK_STATUS,status,0);
@@ -262,6 +272,19 @@ public final class View3D extends GLSurfaceView {
             uMVP=GLES20.glGetUniformLocation(program,"uMVP");uModel=GLES20.glGetUniformLocation(program,"uModel");
             uColor=GLES20.glGetUniformLocation(program,"uColor");uFlat=GLES20.glGetUniformLocation(program,"uFlat");
             uSize=GLES20.glGetUniformLocation(program,"uSize");
+            uNormalMat=GLES20.glGetUniformLocation(program,"uNormalMat");
+            uMetallic=GLES20.glGetUniformLocation(program,"uMetallic");
+            uRoughness=GLES20.glGetUniformLocation(program,"uRoughness");
+            uReflectivity=GLES20.glGetUniformLocation(program,"uReflectivity");
+            uEmission=GLES20.glGetUniformLocation(program,"uEmission");
+            uOpacity=GLES20.glGetUniformLocation(program,"uOpacity");
+            uTexMix=GLES20.glGetUniformLocation(program,"uTexMix");
+            uRepeat=GLES20.glGetUniformLocation(program,"uRepeat");
+            uTexRotation=GLES20.glGetUniformLocation(program,"uTexRotation");
+            uUseTex=GLES20.glGetUniformLocation(program,"uUseTex");
+            uTex=GLES20.glGetUniformLocation(program,"uTex");
+            uEye=GLES20.glGetUniformLocation(program,"uEye");
+            GLES20.glUniform1i(uTex,0);
         }
         private static int shader(int type,String source){
             int id=GLES20.glCreateShader(type);GLES20.glShaderSource(id,source);GLES20.glCompileShader(id);
@@ -319,11 +342,15 @@ public final class View3D extends GLSurfaceView {
             GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT|GLES20.GL_DEPTH_BUFFER_BIT);
             GLES20.glUseProgram(program);camera();drawGrid();
             synchronized(scene){
-                for(int i=0;i<scene.objects.size();i++){
-                    Scene.Part part=scene.objects.get(i);if(!part.visible)continue;
-                    float[] transform=model(part);
-                    drawPart(part,transform,i==scene.selected);
+                for(int pass=0;pass<2;pass++){
+                    GLES20.glDepthMask(pass==0);
+                    for(int i=0;i<scene.objects.size();i++){
+                        Scene.Part part=scene.objects.get(i);if(!part.visible)continue;
+                        if((part.opacity<0.999f)!=(pass==1))continue;
+                        drawPart(part,model(part),i==scene.selected);
+                    }
                 }
+                GLES20.glDepthMask(true);
             }
             // The orbit pivot stays visible even when it is outside the selected mesh.
             GLES20.glDisable(GLES20.GL_DEPTH_TEST);
@@ -356,6 +383,18 @@ public final class View3D extends GLSurfaceView {
             GLES20.glUniformMatrix4fv(uMVP,1,false,mvp,0);GLES20.glUniformMatrix4fv(uModel,1,false,transform,0);
             GLES20.glUniform4f(uColor,((color>>16)&255)/255f,((color>>8)&255)/255f,(color&255)/255f,((color>>>24)&255)/255f);
             GLES20.glUniform1f(uFlat,flat?1f:0f);GLES20.glUniform1f(uSize,pointSize);
+            GLES20.glUniform1f(uUseTex,0f);GLES20.glUniform1f(uOpacity,1f);
+            GLES20.glUniform1f(uMetallic,0f);GLES20.glUniform1f(uRoughness,.55f);
+            GLES20.glUniform1f(uReflectivity,0f);GLES20.glUniform1f(uEmission,0f);
+            float[] cam=eye();GLES20.glUniform3f(uEye,cam[0],cam[1],cam[2]);
+            float[] inv=new float[16];
+            if(Matrix.invertM(inv,0,transform,0)){
+                float[] n={inv[0],inv[4],inv[8], inv[1],inv[5],inv[9], inv[2],inv[6],inv[10]};
+                GLES20.glUniformMatrix3fv(uNormalMat,1,false,n,0);
+            }else{
+                float[] n={1,0,0,0,1,0,0,0,1};
+                GLES20.glUniformMatrix3fv(uNormalMat,1,false,n,0);
+            }
         }
         private void drawLines(float[] points,float[] transform,int color,float thickness){
             if(points.length==0)return;
@@ -366,6 +405,37 @@ public final class View3D extends GLSurfaceView {
             GLES20.glLineWidth(thickness);GLES20.glDrawArrays(GLES20.GL_LINES,0,points.length/3);
             GLES20.glDisableVertexAttribArray(aPos);
         }
+        /** Upload texture on the GL thread, cache by immutable content-address-like ID. */
+        private int loadTexture(String id){
+            if(id==null||id.isEmpty()||!TextureStore.safeId(id))return 0;
+            Integer cached=textureCache.get(id);
+            if(cached!=null)return cached;
+            int texture=0;
+            try{
+                File path=TextureStore.file(context,id);
+                if(!path.isFile())return 0;
+                BitmapFactory.Options opts=new BitmapFactory.Options();
+                opts.inScaled=false;
+                Bitmap bitmap=BitmapFactory.decodeFile(path.getAbsolutePath(),opts);
+                if(bitmap==null)return 0;
+                try{
+                    int[] ids=new int[1];
+                    GLES20.glGenTextures(1,ids,0);
+                    texture=ids[0];
+                    GLES20.glBindTexture(GLES20.GL_TEXTURE_2D,texture);
+                    GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D,GLES20.GL_TEXTURE_MIN_FILTER,GLES20.GL_LINEAR);
+                    GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D,GLES20.GL_TEXTURE_MAG_FILTER,GLES20.GL_LINEAR);
+                    // NPOT textures must use CLAMP_TO_EDGE in OpenGL ES 2.0.
+                    GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D,GLES20.GL_TEXTURE_WRAP_S,GLES20.GL_CLAMP_TO_EDGE);
+                    GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D,GLES20.GL_TEXTURE_WRAP_T,GLES20.GL_CLAMP_TO_EDGE);
+                    GLUtils.texImage2D(GLES20.GL_TEXTURE_2D,0,bitmap,0);
+                    GLES20.glBindTexture(GLES20.GL_TEXTURE_2D,0);
+                    textureCache.put(id,texture);
+                }finally{bitmap.recycle();}
+            }catch(Exception ignored){return 0;}
+            return texture;
+        }
+
         private void drawPart(Scene.Part p,float[] transform,boolean selected){
             Mesh mesh=p.mesh;
             ArrayList<Float> tris=new ArrayList<>(),normals=new ArrayList<>(),edges=new ArrayList<>();
@@ -386,11 +456,24 @@ public final class View3D extends GLSurfaceView {
             float[] v=toArray(tris),n=toArray(normals);
             if(v.length>0){
                 uniforms(transform,p.color,false,1);
+                GLES20.glUniform1f(uMetallic,p.metallic);
+                GLES20.glUniform1f(uRoughness,p.roughness);
+                GLES20.glUniform1f(uReflectivity,p.reflectivity);
+                GLES20.glUniform1f(uEmission,p.emission);
+                GLES20.glUniform1f(uOpacity,p.opacity);
+                GLES20.glUniform1f(uTexMix,p.textureStrength);
+                GLES20.glUniform1f(uRepeat,p.textureRepeat);
+                GLES20.glUniform1f(uTexRotation,(float)Math.toRadians(p.textureRotation));
+                int handle=loadTexture(p.textureId);
+                GLES20.glUniform1f(uUseTex,handle!=0?1f:0f);
+                GLES20.glActiveTexture(GLES20.GL_TEXTURE0);
+                GLES20.glBindTexture(GLES20.GL_TEXTURE_2D,handle);
                 GLES20.glEnableVertexAttribArray(aPos);GLES20.glEnableVertexAttribArray(aNormal);
                 GLES20.glVertexAttribPointer(aPos,3,GLES20.GL_FLOAT,false,0,buffer(v));
                 GLES20.glVertexAttribPointer(aNormal,3,GLES20.GL_FLOAT,false,0,buffer(n));
                 GLES20.glDrawArrays(GLES20.GL_TRIANGLES,0,v.length/3);
                 GLES20.glDisableVertexAttribArray(aPos);GLES20.glDisableVertexAttribArray(aNormal);
+                GLES20.glBindTexture(GLES20.GL_TEXTURE_2D,0);
             }
             // Wire overlay makes polygonal topology apparent without requiring edit mode.
             drawLines(toArray(edges),transform,selected?0xFFD9FB74:0xFF647382,selected?2f:1f);

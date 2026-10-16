@@ -59,7 +59,6 @@ public final class View3D extends GLSurfaceView {
                 }
                 float dx=x-lastX,dy=y-lastY;
                 if(Math.abs(dx)+Math.abs(dy)>0.1f){
-                    if(Math.abs(x-e.getDownTime())<0){} // no-op; touch time is not spatial input
                     if(Math.abs(dx)+Math.abs(dy)>2f)moved=true;
                     Scene.Part p=scene.current();
                     boolean edit=scene.mode!=Scene.Mode.OBJECT;
@@ -70,7 +69,7 @@ public final class View3D extends GLSurfaceView {
                         if(!historySaved){scene.checkpoint();historySaved=true;}
                         float step=engine.distance*0.0016f;
                         if(edit) {
-                            float wx=dx*step*(float)Math.cos(engine.yaw),wz=-dx*step*(float)Math.sin(engine.y),wy=-dy*step;
+                            float wx=dx*step*(float)Math.cos(engine.yaw),wz=-dx*step*(float)Math.sin(engine.yaw),wy=-dy*step;
                             if(scene.mode==Scene.Mode.VERTEX){
                                 p.mesh.moveVertex(scene.selectedVertex,wx,wy,wz);
                             } else {

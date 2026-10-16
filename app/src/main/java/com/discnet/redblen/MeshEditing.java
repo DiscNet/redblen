@@ -116,6 +116,77 @@ public final class MeshEditing {
         return out;
     }
 
+    /** Existing symmetrical face partners, computed before topology is changed. */
+    public static int[] symmetricFaces(Mesh mesh,int sourceFace,int mirrorMask,int radialCount){
+        if(sourceFace<0||sourceFace>=mesh.faces.size())return new int[0];
+        float[][] centers=new float[mesh.faces.size()][3];
+        for(int i=0;i<mesh.faces.size();i++){
+            int[] f=mesh.faces.get(i);
+            for(int id:f)for(int k=0;k<3;k++)centers[i][k]+=mesh.vertices[3*id+k]/f.length;
+        }
+        java.util.LinkedHashSet<Integer> found=new java.util.LinkedHashSet<>();
+        found.add(sourceFace);float[] center=centers[sourceFace];
+        int[] subset=masks(mirrorMask),count=Math.max(1,Math.min(8,radialCount));
+        for(int angle=0;angle<count;angle++)for(int mask:subset){
+            float[] wanted=transformed(center,mask,angle,count);
+            float best=MATCH_EPS*MATCH_EPS*9;int candidate=-1;
+            for(int i=0;i<centers.length;i++){
+                float dx=wanted[0]-centers[i][0],dy=wanted[1]-centers[i][1],dz=wanted[2]-centers[i][2];
+                float dist=dx*dx+dy*dy+dz*dz;
+                if(dist<best){best=dist;candidate=i;}
+            }
+            if(candidate>=0)found.add(candidate);
+        }
+        int[] faces=new int[found.size()];int cursor=0;for(int i:found)faces[cursor++]=i;
+        return faces;
+    }
+    /** Add one connected vertex for each existing face partner in the symmetry group. */
+    public static int[] insertSymmetric(Mesh mesh,int face,float[] hit,int mask,int radial){
+        int[] counterpartFaces=symmetricFaces(mesh,face,mask,radial);
+        if(mesh.vertexCount()+counterpartFaces.length>MAX_VERTICES)return new int[0];
+        ArrayList<Integer> ids=new ArrayList<>();
+        // The original touched polygon is first, so the touched vertex remains the active one.
+        int inserted=insertOnFace(mesh,face,hit);
+        if(inserted<0)return new int[0];
+        ids.add(inserted);
+        if(counterpartFaces.length==1)return new int[]{inserted};
+        // Source original face has been split; mirrored target indices are unchanged.
+        for(int i=1;i<counterpartFaces.length;i++){
+            int targetFace=counterpartFaces[i];
+            if(targetFace==face)continue;
+            float[] center=new float[3];int[] f=mesh.faces.get(targetFace);
+            for(int id:f)for(int k=0;k<3;k++)center[k]+=mesh.vertices[id*3+k]/f.length;
+            float best=Float.POSITIVE_INFINITY;float[] bestHit=null;
+            int count=Math.max(1,Math.min(8,radial));
+            for(int turn=0;turn<count;turn++)for(int subset:masks(mask)){
+                float[] v=transformed(hit,subset,turn,count);
+                // Candidate should belong to target face plane / neighborhood.
+                float dx=v[0]-center[0],dy=v[1]-center[1],dz=v[2]-center[2];
+                float distance=dx*dx+dy*dy+dz*dz;
+                if(distance<best){best=distance;bestHit=v;}
+            }
+            int newId=insertOnFace(mesh,targetFace,bestHit);
+            if(newId>=0)ids.add(newId);
+        }
+        int[] result=new int[ids.size()];for(int i=0;i<ids.size();i++)result[i]=ids.get(i);
+        return result;
+    }
+    public static int editMirroredFaces(Mesh mesh,int face,String operation,int mirrorMask,int radialCount){
+        int[] targets=symmetricFaces(mesh,face,mirrorMask,radialCount);
+        if(targets.length==0)return 0;
+        int changed=0;
+        for(int target:targets){
+            if(operation.equals("extrude")){
+                if(mesh.vertexCount()+mesh.faces.get(target).length>MAX_VERTICES)break;
+                if(mesh.extrudeFace(target,.45f)>=0)changed++;
+            }else if(operation.equals("inset")){
+                if(mesh.vertexCount()+mesh.faces.get(target).length>MAX_VERTICES)break;
+                if(mesh.insetFace(target,.22f)>=0)changed++;
+            }else if(operation.equals("flip")){mesh.flipFace(target);changed++;}
+        }
+        return changed;
+    }
+
     /** Move selected vertices and existing mirrored/rotational counterparts in one atomic edit. */
     public static int moveSelection(Mesh mesh,Set<Integer> selection,float[] delta,int mirrorMask,int radialCount){
         if(selection.isEmpty())return 0;

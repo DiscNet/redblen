@@ -284,6 +284,7 @@ public final class View3D extends GLSurfaceView {
             uUseTex=GLES20.glGetUniformLocation(program,"uUseTex");
             uTex=GLES20.glGetUniformLocation(program,"uTex");
             uEye=GLES20.glGetUniformLocation(program,"uEye");
+            GLES20.glUseProgram(program);
             GLES20.glUniform1i(uTex,0);
         }
         private static int shader(int type,String source){

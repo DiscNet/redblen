@@ -52,7 +52,16 @@ public final class MainActivity extends Activity implements View3D.Listener {
         LinearLayout header=row();header.setGravity(Gravity.CENTER_VERTICAL);header.setPadding(dp(14),0,dp(10),0);
         TextView title=label("Redblen",20,TEXT,true);header.addView(title,new LinearLayout.LayoutParams(0,-2,1));
         TextView version=label("0.3",11,MUTED,false);header.addView(version);
-        header.addView(space(8,1));
+        header.addView(space(5,1));
+        TextView delete=button("Excluir",false,()->{
+            if(scene.current()==null){toast("Selecione um objeto");return;}
+            scene.delete();refreshAll();saveAutosave();
+            toast("Modelo excluído · ↶ desfaz");
+        });
+        delete.setContentDescription("Excluir o modelo selecionado");
+        delete.setTextSize(11);
+        header.addView(delete,new LinearLayout.LayoutParams(dp(63),dp(37)));
+        header.addView(space(5,1));
         header.addView(button("↶",false,()->{if(scene.undo())refreshAll();else toast("Nada para desfazer");}),new LinearLayout.LayoutParams(dp(42),dp(40)));
         header.addView(button("↷",false,()->{if(scene.redo())refreshAll();else toast("Nada para refazer");}),new LinearLayout.LayoutParams(dp(42),dp(40)));
         main.addView(header,new LinearLayout.LayoutParams(-1,dp(54)));
@@ -107,10 +116,6 @@ public final class MainActivity extends Activity implements View3D.Listener {
         if(scene.mode==Scene.Mode.OBJECT){
             toolButton("Girar",Scene.Tool.ROTATE);
             toolButton("Escala",Scene.Tool.SCALE);
-            addAction(tools,"Excluir",()->{
-                if(scene.current()==null){toast("Selecione o objeto");return;}
-                scene.delete();refreshAll();saveAutosave();toast("Objeto excluído · ↶ para desfazer");
-            });
         }else if(scene.mode==Scene.Mode.FACE){
             addAction(tools,"Extrudar",()->faceOperation("extrude"));
             addAction(tools,"Inset",()->faceOperation("inset"));
@@ -557,7 +562,7 @@ public final class MainActivity extends Activity implements View3D.Listener {
     private static String readAll(Reader r)throws Exception{
         try(Reader reader=r){
             StringBuilder s=new StringBuilder();char[] block=new char[4096];int n;
-            while((n=reader.read(block))!=-1){s.append(block,0,n);if(s.length()>8_000_000)throw new Exception("Arquivo muito grande");}
+            while((n=reader.read(block))!=-1){s.append(block,0,n);if(s.length()>40_000_000)throw new Exception("Arquivo muito grande");}
             return s.toString();
         }
     }

@@ -24,7 +24,7 @@ public final class View3D extends GLSurfaceView {
     private final Listener listener;
     private final float density, touchSlop;
     private float downX,downY,lastX,lastY,lastMidX,lastMidY,lastSpan;
-    private boolean didDrag,hadMultiTouch,historySaved,anchorPick;
+    private boolean didDrag,hadMultiTouch,historySaved,anchorPick,dragOnSelected;
 
     public View3D(Context c,Scene scene,Listener listener){
         super(c);
@@ -89,6 +89,20 @@ public final class View3D extends GLSurfaceView {
             case MotionEvent.ACTION_DOWN:
                 downX=lastX=e.getX();downY=lastY=e.getY();
                 didDrag=false;hadMultiTouch=false;historySaved=false;lastSpan=0f;
+                dragOnSelected=false;
+                Scene.Part downPart=scene.current();
+                if(!anchorPick&&downPart!=null&&(scene.tool==Scene.Tool.MOVE||
+                    scene.tool==Scene.Tool.ROTATE||scene.tool==Scene.Tool.SCALE)){
+                    if(scene.mode==Scene.Mode.VERTEX){
+                        dragOnSelected=scene.selectedVertex>=0 &&
+                            engine.pickVertex(downX,downY,24*density)==scene.selectedVertex;
+                    }else{
+                        int[] underFinger=engine.pickFace(downX,downY);
+                        dragOnSelected=underFinger!=null&&underFinger[0]==scene.selected &&
+                            (scene.mode==Scene.Mode.OBJECT ||
+                            (scene.mode==Scene.Mode.FACE&&underFinger[1]==scene.selectedFace));
+                    }
+                }
                 return true;
             case MotionEvent.ACTION_POINTER_DOWN:
                 hadMultiTouch=true;
@@ -121,7 +135,7 @@ public final class View3D extends GLSurfaceView {
                 boolean edit=scene.mode!=Scene.Mode.OBJECT;
                 boolean selectedElement=(scene.mode==Scene.Mode.VERTEX&&scene.selectedVertex>=0)||
                     (scene.mode==Scene.Mode.FACE&&scene.selectedFace>=0);
-                boolean manipulate=part!=null&&!anchorPick &&
+                boolean manipulate=dragOnSelected&&part!=null&&!anchorPick &&
                     (scene.tool==Scene.Tool.MOVE||scene.tool==Scene.Tool.ROTATE||scene.tool==Scene.Tool.SCALE) &&
                     (!edit||(selectedElement&&scene.tool==Scene.Tool.MOVE));
                 if(manipulate){
@@ -178,7 +192,20 @@ public final class View3D extends GLSurfaceView {
                 if(remain<e.getPointerCount()){
                     lastX=e.getX(remain);lastY=e.getY(remain);
                 }
-                lastSpan=0f;return true;
+                if(e.getPointerCount()>2){
+                    int aIndex=-1,bIndex=-1;
+                    for(int i=0;i<e.getPointerCount();i++){
+                        if(i==e.getActionIndex())continue;
+                        if(aIndex<0)aIndex=i;
+                        else {bIndex=i;break;}
+                    }
+                    if(aIndex>=0&&bIndex>=0){
+                        float ax=e.getX(aIndex),ay=e.getY(aIndex),bx=e.getX(bIndex),by=e.getY(bIndex);
+                        lastSpan=(float)Math.hypot(ax-bx,ay-by);
+                        lastMidX=(ax+bx)*.5f;lastMidY=(ay+by)*.5f;
+                    }else lastSpan=0f;
+                }else lastSpan=0f;
+                return true;
             case MotionEvent.ACTION_UP:
                 if(!hadMultiTouch&&!didDrag){
                     float tapX=e.getX(),tapY=e.getY();

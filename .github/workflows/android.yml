@@ -24,11 +24,11 @@ jobs:
           ls "$ANDROID_HOME/platforms"
           ls "$ANDROID_HOME/build-tools"
       - name: Build APK
-        run: gradle --no-daemon :app:assembleDebug --stacktrace
+        run: gradle --no-daemon :app:testDebugUnitTest :app:assembleDebug --stacktrace
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Redblen-v0.3.0-debug-apk
+          name: Redblen-v0.4.0-debug-apk
           path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
       - name: Publish pre-release for Android
@@ -38,10 +38,10 @@ jobs:
         shell: bash
         run: |
           SHORT_SHA="${GITHUB_SHA:0:7}"
-          TAG="v0.3.0-alpha-${SHORT_SHA}"
-          cp app/build/outputs/apk/debug/app-debug.apk Redblen-v0.3.0-alpha.apk
-          gh release create "$TAG" Redblen-v0.3.0-alpha.apk \
+          TAG="v0.4.0-alpha-${SHORT_SHA}"
+          cp app/build/outputs/apk/debug/app-debug.apk Redblen-v0.4.0-alpha.apk
+          gh release create "$TAG" Redblen-v0.4.0-alpha.apk \
             --target "$GITHUB_SHA" \
-            --title "Redblen v0.3.0 Alpha (${SHORT_SHA})" \
-            --notes "APK Android de testes (debug). Materiais personalizáveis: cor HEX/RGB, metalicidade, rugosidade, reflexão, emissão, opacidade e textura importada; botão Excluir restaurado, câmera livre e edição de malhas. Esta compilação usa assinatura de debug temporária; atualizações futuras podem exigir desinstalar a versão anterior." \
+            --title "Redblen v0.4.0 Alpha (${SHORT_SHA})" \
+            --notes "APK Android de testes (debug). Multi-selecao de vertices, insercao conectada de vertices, refinamento de malha, simetria por eixos combinaveis e radial, pinceis de esculpir (puxar/empurrar/suavizar); materiais e camera da v0.3 preservados. Esta compilação usa assinatura de debug temporária; atualizações futuras podem exigir desinstalar a versão anterior." \
             --prerelease

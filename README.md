@@ -5,12 +5,17 @@ Editor 3D para Android, nativo em Java e OpenGL ES 2.0. Sem WebView, sem conta e
 ## Objetivo
 Modelagem poligonal de verdade com interface pensada para toque, inspirada em padrões de trabalho (não identidade visual ou código) do Blender e de modeladores mobile.
 
-## Funcionalidades da versão 0.3.0
+## Funcionalidades da versão 0.4.0
 - Viewport 3D com modos **Órbita**, **Pan** e **Olhar livre**, pinça para zoom e pan com dois dedos, grade, eixos e pivô visível.
 - Primitivas: cubo, esfera UV, cilindro, cone e plano.
 - Seleção por toque; translação, rotação e escala XYZ ou individual em X, Y e Z; pivô de escala centralizado para não deslocar o modelo.
 - Hierarquia de objetos, duplicação, remoção (botão Excluir na barra de objetos), propriedades e edição completa de materiais.
-- Modo malha: seleção de vértices e faces, deslocamento de vértices e extrusão/inset de faces.
+- Seleção **cumulativa de vértices**: ative **Seleção múltipla**, toque em cada vértice e arraste qualquer vértice selecionado com Mover para deslocar o conjunto. Toque novamente para desmarcar.
+- **Adicionar vértices conectados**: toque em + Vértice e depois numa face; o polígono é subdividido em triângulos ligados ao novo ponto.
+- **Refinar malha**: subdivisão linear com arestas compartilhadas, para aumentar a densidade sem romper as conexões. Limite de 6.500 vértices por objeto, pensado para Android.
+- **Simetria** em planos X/Y/Z independentes ou combinados (XY, XZ, YZ, XYZ), e simetria radial com 2/4/6/8 repetições em torno de Y; aplicada à edição de vértices, às operações de faces e à escultura quando há geometria correspondente.
+- **Escultura 3D** com Puxar, Empurrar e Suavizar e pincel de raio e força ajustáveis. Ao entrar em Esculpir com malha muito simples, é realizado refinamento inicial reversível.
+- Modo malha: seleção de faces, deslocamento de vértices, extrusão e inset de faces.
 - Centro da câmera configurável por toque em uma superfície, seleção de objeto/vértice/face ou coordenadas X/Y/Z.
 - Editor de materiais com seis presets (mate, plástico, aço, ouro, cromo e vidro simulado), cor RGB/HEX, metalicidade, rugosidade, reflexos de estúdio, emissão, opacidade e textura por imagem importada do Android.
 - Projeção triplanar de texturas com ajustes de intensidade, repetição e rotação.
@@ -23,11 +28,15 @@ Modelagem poligonal de verdade com interface pensada para toque, inspirada em pa
 3. Dois dedos: pinça para zoom e arraste conjunto para navegar. Abra **Câmera** para alternar entre **Órbita**, **Pan** (deslizar o enquadramento) e **Olhar livre** (mudar a direção mantendo a posição).
 4. Em **Câmera → Escolher na cena**, toque em um ponto da malha ou do chão para fixar o centro de órbita. Também é possível usar **Seleção**, digitar X/Y/Z, ou retornar à origem.
 5. Em **Face** toque numa face, então **Extrudar** ou **Inset**. Em **Vértice** toque no vértice, depois arraste para mover.
-6. Abra **Editar** para valores numéricos ou **Material** para personalizar aparência; o painel **Material** permite importar PNG/JPEG pelo seletor Android.
-7. Abra **Arquivo** para salvar/importar/exportar.
+6. Ative **Seleção múltipla** na barra de Vértice e toque em vários vértices; com **Mover**, arraste um vértice selecionado para deslocar todos.
+7. No modo **Vértice**, escolha **+ Vértice** e toque numa face para inserir um ponto conectado. **Refinar** acrescenta subdivisões antes de esculpir.
+8. Ative espelhos X, Y ou Z no painel **Simetria**, inclusive combinações e repetições rotacionais. A origem local (0,0,0) é o eixo/centro de simetria.
+9. Em **Esculpir**, escolha **Puxar**, **Empurrar** ou **Suavizar**, configure raio/força e deslize sobre o objeto. Dois dedos continuam navegando.
+10. Abra **Editar** para valores numéricos ou **Material** para personalizar aparência; o painel **Material** permite importar PNG/JPEG pelo seletor Android.
+11. Abra **Arquivo** para salvar/importar/exportar.
 
 ## APK
-Acesse [Actions](https://github.com/DiscNet/redblen/actions/workflows/android.yml), escolha a execução mais recente bem-sucedida e baixe o artefato **Redblen-v0.3.0-debug-apk** (contém o APK).
+Acesse [Actions](https://github.com/DiscNet/redblen/actions/workflows/android.yml), escolha a execução mais recente bem-sucedida e baixe o artefato **Redblen-v0.4.0-debug-apk** (contém o APK).
 
 ## Compilar localmente
 Requer JDK 17, Android SDK Platform 35 e Gradle 8.9:
@@ -54,3 +63,9 @@ Build debug via GitHub Actions; a compilação automatizada não valida gestos e
 - A textura usa projeção **triplanar automática**, não UV unwrap/editável. Funciona também em meshes OBJ sem UV; o arquivo OBJ exportado não inclui texturas nem arquivo MTL.
 - Texturas importadas são reduzidas a no máximo 1024 px por dimensão e guardadas como PNG no armazenamento privado. Ao exportar `.redblen`, as imagens referenciadas são incorporadas em Base64 e preservadas quando o projeto for reimportado.
 - A transparência é uma aproximação de duas passagens, sem ordenação espacial de múltiplos objetos translúcidos.
+
+## Observações sobre a simetria e escultura
+- A simetria modifica posições e polígonos **já existentes**, procurando correspondentes ao redor da origem local do objeto; não gera automaticamente uma metade nova onde não existe geometria. Para resultados previsíveis, comece com primitivas simétricas.
+- Nos modos de edição poligonal, **Extrudar / Inset / Inverter** são aplicados às faces correspondentes. A inserção de vértices também ocorre nas faces simétricas reconhecidas.
+- A escultura é deformação de malha por vértices, com falloff suave e pincel no espaço local. **Não é voxel sculpting nem remesh dinâmico**: quanto maior a subdivisão, maior o detalhe; uma malha baixa exibe resultados limitados.
+- Testes JUnit exercitam movimento espelhado, subdivisão, inserção e escultura simétrica; a execução de CI não substitui testes de GPU/gestos reais em Android.

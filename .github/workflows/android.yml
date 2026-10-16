@@ -5,7 +5,7 @@ on:
   pull_request:
   workflow_dispatch:
 permissions:
-  contents: read
+  contents: write
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -31,3 +31,17 @@ jobs:
           name: Redblen-v0.1.0-debug-apk
           path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
+      - name: Publish pre-release for Android
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          SHORT_SHA="${GITHUB_SHA:0:7}"
+          TAG="v0.1.0-alpha-${SHORT_SHA}"
+          cp app/build/outputs/apk/debug/app-debug.apk Redblen-v0.1.0-alpha.apk
+          gh release create "$TAG" Redblen-v0.1.0-alpha.apk \
+            --target "$GITHUB_SHA" \
+            --title "Redblen v0.1.0 Alpha (${SHORT_SHA})" \
+            --notes "APK Android de testes (debug). Funcionalidades iniciais: viewport OpenGL ES, edição de objetos e malhas, importação/exportação OBJ e projetos Redblen. Esta compilação usa assinatura de debug temporária; atualizações futuras podem exigir desinstalar a versão anterior." \
+            --prerelease

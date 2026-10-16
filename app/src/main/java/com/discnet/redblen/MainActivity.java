@@ -1,0 +1,364 @@
+package com.discnet.redblen;
+
+import android.app.Activity;
+import android.app.AlertDialog;
+import android.content.Intent;
+import android.graphics.Color;
+import android.graphics.Typeface;
+import android.graphics.drawable.GradientDrawable;
+import android.net.Uri;
+import android.os.Bundle;
+import android.view.Gravity;
+import android.view.View;
+import android.view.ViewGroup;
+import android.view.Window;
+import android.widget.EditText;
+import android.widget.FrameLayout;
+import android.widget.HorizontalScrollView;
+import android.widget.LinearLayout;
+import android.widget.ScrollView;
+import android.widget.TextView;
+import android.widget.Toast;
+import android.text.InputType;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.InputStreamReader;
+import java.io.OutputStreamWriter;
+import java.io.Reader;
+import java.io.Writer;
+import java.nio.charset.StandardCharsets;
+import java.util.Locale;
+
+/** Touch-first UI built with native Android widgets. No WebView and no UI framework dependency. */
+public final class MainActivity extends Activity implements View3D.Listener {
+    private static final int BG=0xFF111419,PANEL=0xFF1B2027,CHIP=0xFF272D36,STROKE=0xFF39424E;
+    private static final int TEXT=0xFFEBF0F4,MUTED=0xFF9BA6B3,ACCENT=0xFFD9FB74;
+    private static final int READ_PROJECT=201,READ_OBJ=202,WRITE_PROJECT=203,WRITE_OBJ=204;
+    private Scene scene;private View3D viewport;private FrameLayout stage;private LinearLayout modes,tools;
+    private TextView selectionLabel;private View sheet;private String sheetName="";
+    private final String[] primitives={"Cubo","Esfera","Cilindro","Cone","Plano"};
+    @Override public void onCreate(Bundle state){
+        super.onCreate(state);getWindow().setStatusBarColor(BG);getWindow().setNavigationBarColor(BG);
+        getWindow().getDecorView().setSystemUiVisibility(0);
+        scene=new Scene(true);loadAutosave();
+        buildUI();refreshAll();
+    }
+    private void buildUI(){
+        LinearLayout main=new LinearLayout(this);main.setOrientation(LinearLayout.VERTICAL);main.setBackgroundColor(BG);
+        setContentView(main);
+        LinearLayout header=row();header.setGravity(Gravity.CENTER_VERTICAL);header.setPadding(dp(14),0,dp(10),0);
+        TextView title=label("Redblen",20,TEXT,true);header.addView(title,new LinearLayout.LayoutParams(0,-2,1));
+        TextView version=label("0.1",11,MUTED,false);header.addView(version);
+        header.addView(space(8,1));
+        header.addView(button("↶",false,()->{if(scene.undo())refreshAll();else toast("Nada para desfazer");}),new LinearLayout.LayoutParams(dp(42),dp(40)));
+        header.addView(button("↷",false,()->{if(scene.redo())refreshAll();else toast("Nada para refazer");}),new LinearLayout.LayoutParams(dp(42),dp(40)));
+        main.addView(header,new LinearLayout.LayoutParams(-1,dp(54)));
+
+        modes=row();modes.setGravity(Gravity.CENTER_VERTICAL);modes.setPadding(dp(12),0,dp(12),0);
+        main.addView(modes,new LinearLayout.LayoutParams(-1,dp(46)));
+
+        stage=new FrameLayout(this);viewport=new View3D(this,scene,this);
+        stage.addView(viewport,new FrameLayout.LayoutParams(-1,-1));
+        LinearLayout info=row();info.setGravity(Gravity.CENTER_VERTICAL);info.setPadding(dp(12),dp(7),dp(12),dp(7));
+        info.setBackground(bg(PANEL,10,0));
+        FrameLayout.LayoutParams hud=new FrameLayout.LayoutParams(-2,dp(34),Gravity.TOP|Gravity.LEFT);
+        hud.setMargins(dp(12),dp(12),0,0);stage.addView(info,hud);
+        selectionLabel=label("Cubo",12,MUTED,false);info.addView(selectionLabel);
+        TextView legend=label("1 dedo: orbitar · 2 dedos: zoom / pan",11,MUTED,false);
+        legend.setPadding(dp(8),dp(7),dp(8),dp(7));legend.setBackground(bg(PANEL,10,0));
+        FrameLayout.LayoutParams legendParams=new FrameLayout.LayoutParams(-2,-2,Gravity.TOP|Gravity.RIGHT);
+        legendParams.setMargins(0,dp(57),dp(10),0);stage.addView(legend,legendParams);
+        main.addView(stage,new LinearLayout.LayoutParams(-1,0,1));
+
+        HorizontalScrollView h=new HorizontalScrollView(this);h.setHorizontalScrollBarEnabled(false);
+        tools=row();tools.setGravity(Gravity.CENTER_VERTICAL);tools.setPadding(dp(8),0,dp(8),0);
+        h.addView(tools);main.addView(h,new LinearLayout.LayoutParams(-1,dp(58)));
+        LinearLayout bar=row();bar.setGravity(Gravity.CENTER);bar.setPadding(dp(4),0,dp(4),dp(3));
+        bar.setBackgroundColor(PANEL);
+        addNav(bar,"＋ Objeto",()->openSheet("add"));
+        addNav(bar,"Cena",()->openSheet("scene"));
+        addNav(bar,"Propriedades",()->openSheet("properties"));
+        addNav(bar,"Arquivo",()->openSheet("file"));
+        main.addView(bar,new LinearLayout.LayoutParams(-1,dp(62)));
+        renderModes();renderTools();
+    }
+    private void renderModes(){
+        modes.removeAllViews();
+        modeButton("Objeto",Scene.Mode.OBJECT);modeButton("Vértice",Scene.Mode.VERTEX);modeButton("Face",Scene.Mode.FACE);
+        View spacer=new View(this);modes.addView(spacer,new LinearLayout.LayoutParams(0,1,1));
+        modes.addView(button("Centralizar",false,()->viewport.focus()),new LinearLayout.LayoutParams(-2,dp(34)));
+    }
+    private void modeButton(String name,Scene.Mode mode){
+        boolean active=scene.mode==mode;
+        TextView v=button(name,active,()->{
+            scene.mode=mode;scene.selectedFace=-1;scene.selectedVertex=-1;
+            if(mode!=Scene.Mode.OBJECT&&scene.tool!=Scene.Tool.MOVE)scene.tool=Scene.Tool.ORBIT;
+            renderModes();renderTools();viewport.refresh();updateLabel();
+        });
+        LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-2,dp(34));lp.rightMargin=dp(5);modes.addView(v,lp);
+    }
+    private void renderTools(){
+        tools.removeAllViews();
+        toolButton("Orbitar",Scene.Tool.ORBIT);
+        toolButton("Mover",Scene.Tool.MOVE);
+        if(scene.mode==Scene.Mode.OBJECT){
+            toolButton("Girar",Scene.Tool.ROTATE);toolButton("Escala",Scene.Tool.SCALE);
+            addAction(tools,"Duplicar",()->{scene.duplicate();refreshAll();});
+            addAction(tools,"Excluir",()->{scene.delete();refreshAll();});
+        }else if(scene.mode==Scene.Mode.FACE){
+            addAction(tools,"Extrudar",()->faceOperation("extrude"));
+            addAction(tools,"Inset",()->faceOperation("inset"));
+            addAction(tools,"Inverter",()->faceOperation("flip"));
+        }else{
+            addAction(tools,"Y = 0",()->{
+                Scene.Part p=scene.current();
+                if(p==null||scene.selectedVertex<0){toast("Selecione um vértice");return;}
+                int v=scene.selectedVertex;scene.checkpoint();
+                p.mesh.moveVertex(v,0,-p.mesh.vertices[3*v+1],0);refreshAll();
+            });
+        }
+    }
+    private void toolButton(String name,Scene.Tool tool){
+        addChip(tools,name,scene.tool==tool,()->{scene.tool=tool;renderTools();updateLabel();});
+    }
+    private void addAction(LinearLayout row,String text,Runnable action){addChip(row,text,false,action);}
+    private void addChip(LinearLayout row,String text,boolean highlighted,Runnable action){
+        TextView v=button(text,highlighted,action);LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-2,dp(40));
+        lp.rightMargin=dp(6);row.addView(v,lp);
+    }
+    private void faceOperation(String operation){
+        Scene.Part p=scene.current();int face=scene.selectedFace;
+        if(p==null||face<0||face>=p.mesh.faces.size()){toast("Toque em uma face primeiro");return;}
+        if(p.mesh.vertexCount()>49000){toast("Malha excede o limite de edição");return;}
+        scene.checkpoint();
+        if(operation.equals("extrude"))scene.selectedFace=p.mesh.extrudeFace(face,0.45f);
+        else if(operation.equals("inset"))scene.selectedFace=p.mesh.insetFace(face,0.22f);
+        else p.mesh.flipFace(face);
+        refreshAll();
+    }
+    private void addNav(LinearLayout bar,String title,Runnable onTap){
+        TextView v=button(title,false,onTap);v.setTextSize(12);
+        LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,dp(46),1);
+        lp.setMargins(dp(3),0,dp(3),0);bar.addView(v,lp);
+    }
+    private void openSheet(String key){
+        if(sheet!=null){stage.removeView(sheet);sheet=null;if(sheetName.equals(key)){sheetName="";return;}}
+        sheetName=key;
+        ScrollView scroll=new ScrollView(this);
+        scroll.setFillViewport(false);scroll.setVerticalScrollBarEnabled(false);
+        scroll.setBackground(bg(PANEL,17,STROKE));scroll.setElevation(dp(10));
+        LinearLayout body=new LinearLayout(this);body.setOrientation(LinearLayout.VERTICAL);
+        body.setPadding(dp(16),dp(13),dp(16),dp(14));scroll.addView(body);
+        LinearLayout heading=row();heading.setGravity(Gravity.CENTER_VERTICAL);
+        String label=key.equals("add")?"Adicionar objeto":key.equals("scene")?"Cena / Objetos":key.equals("properties")?"Propriedades":"Arquivos / Projeto";
+        TextView caption=label(label,16,TEXT,true);heading.addView(caption,new LinearLayout.LayoutParams(0,-2,1));
+        heading.addView(button("Fechar ×",false,()->closeSheet()));
+        body.addView(heading);
+        body.addView(space(1,12));
+        switch(key){
+            case "add":panelAdd(body);break;
+            case "scene":panelScene(body);break;
+            case "properties":panelProperties(body);break;
+            case "file":panelFile(body);break;
+        }
+        FrameLayout.LayoutParams lp=new FrameLayout.LayoutParams(-1,dp(key.equals("properties")?315:260),Gravity.BOTTOM);
+        lp.setMargins(dp(8),0,dp(8),dp(6));stage.addView(scroll,lp);sheet=scroll;
+    }
+    private void closeSheet(){if(sheet!=null)stage.removeView(sheet);sheet=null;sheetName="";}
+    private void panelAdd(LinearLayout body){
+        body.addView(label("PRIMITIVAS POLIGONAIS",11,MUTED,false));body.addView(space(1,10));
+        for(int start=0;start<primitives.length;start+=3){
+            LinearLayout r=row();
+            for(int i=start;i<Math.min(start+3,primitives.length);i++){
+                final String name=primitives[i];
+                TextView v=button("＋ "+name,false,()->{
+                    if(scene.objects.size()>=Scene.MAX_OBJECTS){toast("Limite de objetos");return;}
+                    scene.add(name,true);closeSheet();refreshAll();
+                });
+                LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,dp(49),1);
+                lp.setMargins(dp(2),dp(2),dp(2),dp(2));r.addView(v,lp);
+            }
+            body.addView(r);
+        }
+    }
+    private void panelScene(LinearLayout body){
+        if(scene.objects.isEmpty()){body.addView(label("Cena vazia. Adicione um objeto.",14,MUTED,false));return;}
+        for(int i=0;i<scene.objects.size();i++){
+            final int index=i;Scene.Part p=scene.objects.get(i);
+            LinearLayout row=row();row.setGravity(Gravity.CENTER_VERTICAL);
+            TextView visible=button(p.visible?"◉":"○",false,()->{p.visible=!p.visible;refreshAll();openSheetRefresh();});
+            row.addView(visible,new LinearLayout.LayoutParams(dp(46),dp(37)));
+            TextView name=button(p.name,i==scene.selected,()->{scene.selected=index;scene.selectedFace=-1;scene.selectedVertex=-1;refreshAll();openSheetRefresh();});
+            row.addView(name,new LinearLayout.LayoutParams(0,dp(37),1));
+            LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,dp(42));body.addView(row,lp);
+        }
+    }
+    private void panelProperties(LinearLayout body){
+        Scene.Part p=scene.current();
+        if(p==null){body.addView(label("Selecione um objeto no viewport ou na Cena.",13,MUTED,false));return;}
+        EditText name=textField(p.name,false);
+        body.addView(label("NOME",10,MUTED,false));body.addView(name,new LinearLayout.LayoutParams(-1,dp(42)));
+        EditText[] pos=vectorFields(body,"POSIÇÃO",p.position);
+        EditText[] rot=vectorFields(body,"ROTAÇÃO (GRAUS)",p.rotation);
+        EditText[] scale=vectorFields(body,"ESCALA",p.scale);
+        body.addView(space(1,6));
+        LinearLayout actions=row();
+        TextView apply=button("Aplicar valores",true,()->{
+            try{
+                float[] a=parseVector(pos),b=parseVector(rot),c=parseVector(scale);
+                for(float val:c)if(Math.abs(val)<0.001f)throw new IllegalArgumentException();
+                scene.checkpoint();p.name=name.getText().toString().trim();
+                if(p.name.isEmpty())p.name="Objeto";
+                p.position=a;p.rotation=b;p.scale=c;refreshAll();toast("Transformações aplicadas");
+            }catch(Exception e){toast("Use números válidos; escala não pode ser zero");}
+        });
+        actions.addView(apply,new LinearLayout.LayoutParams(0,dp(41),1));
+        actions.addView(space(7,1));
+        actions.addView(button("Focar",false,()->viewport.focus()));
+        body.addView(actions);body.addView(space(1,10));
+        body.addView(label("MATERIAL · COR",10,MUTED,false));body.addView(space(1,5));
+        LinearLayout swatches=row();
+        int[] colors={0xFF91AEC3,0xFFD5AC87,0xFFB5A0CE,0xFF92C8B1,0xFFE28E8E,0xFFE5E2D8};
+        for(int color:colors){
+            TextView v=button("●",p.color==color,()->{scene.checkpoint();p.color=color;refreshAll();});
+            v.setTextColor(color);
+            swatches.addView(v,new LinearLayout.LayoutParams(0,dp(38),1));
+        }
+        body.addView(swatches);
+    }
+    private EditText[] vectorFields(LinearLayout body,String title,float[] values){
+        body.addView(space(1,10));body.addView(label(title,10,MUTED,false));body.addView(space(1,3));
+        LinearLayout row=row();EditText[] fields=new EditText[3];
+        String[] coords={"X","Y","Z"};
+        for(int i=0;i<3;i++){
+            LinearLayout cell=row();cell.setGravity(Gravity.CENTER_VERTICAL);
+            TextView t=label(coords[i],11,MUTED,true);t.setPadding(dp(5),0,dp(5),0);cell.addView(t);
+            fields[i]=textField(String.format(Locale.US,"%.3f",values[i]),true);
+            cell.addView(fields[i],new LinearLayout.LayoutParams(0,dp(40),1));
+            LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,-2,1);
+            lp.rightMargin=dp(5);row.addView(cell,lp);
+        }
+        body.addView(row);return fields;
+    }
+    private float[] parseVector(EditText[] values){
+        float[] out=new float[3];for(int i=0;i<3;i++){
+            out[i]=Float.parseFloat(values[i].getText().toString().replace(",","."));if(!Float.isFinite(out[i])||Math.abs(out[i])>100000)throw new IllegalArgumentException();
+        }
+        return out;
+    }
+    private void panelFile(LinearLayout body){
+        LinearLayout a=row();a.addView(button("Novo",false,()->newProject()),new LinearLayout.LayoutParams(0,dp(44),1));
+        a.addView(space(7,1));a.addView(button("Salvar local",true,()->{saveAutosave();toast("Projeto salvo no app");}),new LinearLayout.LayoutParams(0,dp(44),1));
+        body.addView(a);body.addView(space(1,8));
+        LinearLayout b=row();
+        b.addView(button("Abrir .redblen",false,()->openDocument(READ_PROJECT,"*/*")),new LinearLayout.LayoutParams(0,dp(44),1));
+        b.addView(space(7,1));b.addView(button("Importar .obj",false,()->openDocument(READ_OBJ,"*/*")),new LinearLayout.LayoutParams(0,dp(44),1));
+        body.addView(b);body.addView(space(1,8));
+        LinearLayout c=row();
+        c.addView(button("Exportar .obj",false,()->createDocument(WRITE_OBJ,"model.obj","text/plain")),new LinearLayout.LayoutParams(0,dp(44),1));
+        c.addView(space(7,1));c.addView(button("Projeto .redblen",true,()->createDocument(WRITE_PROJECT,"projeto.redblen","application/json")),new LinearLayout.LayoutParams(0,dp(44),1));
+        body.addView(c);
+        body.addView(space(1,10));body.addView(label("Projetos ficam no armazenamento privado até serem exportados.",11,MUTED,false));
+    }
+    private void newProject(){
+        new AlertDialog.Builder(this).setTitle("Novo projeto?")
+            .setMessage("A cena atual será substituída. Exporte seu projeto antes, se necessário.")
+            .setNegativeButton("Cancelar",null)
+            .setPositiveButton("Criar",(d,w)->{
+                scene.checkpoint();scene.objects.clear();scene.add("Cubo",false);
+                scene.mode=Scene.Mode.OBJECT;scene.tool=Scene.Tool.ORBIT;
+                viewport.resetCamera();closeSheet();refreshAll();saveAutosave();
+            }).show();
+    }
+    private void openSheetRefresh(){String key=sheetName;if(sheet!=null){stage.removeView(sheet);sheet=null;sheetName="";openSheet(key);}}
+    private void updateLabel(){
+        Scene.Part p=scene.current();
+        String suffix=scene.mode==Scene.Mode.FACE?" · Face "+(scene.selectedFace+1):scene.mode==Scene.Mode.VERTEX?" · Vértice "+(scene.selectedVertex+1):"";
+        selectionLabel.setText(p==null?"Nenhum objeto":p.name+suffix);
+    }
+    private void refreshAll(){renderModes();renderTools();updateLabel();viewport.refresh();if(sheet!=null)openSheetRefresh();}
+    @Override public void onSelectionChanged(){refreshAll();}
+    @Override public void onDocumentChanged(){updateLabel();}
+    private void openDocument(int request,String type){
+        Intent intent=new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        intent.setType(type);intent.addCategory(Intent.CATEGORY_OPENABLE);
+        startActivityForResult(intent,request);
+    }
+    private void createDocument(int request,String name,String type){
+        Intent intent=new Intent(Intent.ACTION_CREATE_DOCUMENT);
+        intent.setType(type);intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.putExtra(Intent.EXTRA_TITLE,name);
+        startActivityForResult(intent,request);
+    }
+    @Override protected void onActivityResult(int request,int result,Intent data){
+        super.onActivityResult(request,result,data);
+        if(result!=RESULT_OK||data==null||data.getData()==null)return;
+        Uri uri=data.getData();
+        try{
+            if(request==READ_PROJECT){
+                String json=readAll(new InputStreamReader(getContentResolver().openInputStream(uri),StandardCharsets.UTF_8));
+                scene.checkpoint();SceneIO.decodeInto(scene,json);scene.clearHistory();closeSheet();refreshAll();saveAutosave();
+                toast("Projeto aberto");
+            }else if(request==READ_OBJ){
+                Mesh mesh;
+                try(Reader r=new InputStreamReader(getContentResolver().openInputStream(uri),StandardCharsets.UTF_8)){mesh=SceneIO.readObj(r);}
+                if(scene.objects.size()>=Scene.MAX_OBJECTS){toast("Limite de objetos");return;}
+                scene.checkpoint();scene.objects.add(new Scene.Part("OBJ importado",mesh));scene.selected=scene.objects.size()-1;
+                scene.selectedVertex=-1;scene.selectedFace=-1;closeSheet();refreshAll();saveAutosave();toast("OBJ importado");
+            }else if(request==WRITE_OBJ||request==WRITE_PROJECT){
+                try(Writer w=new OutputStreamWriter(getContentResolver().openOutputStream(uri),StandardCharsets.UTF_8)){
+                    if(request==WRITE_OBJ)SceneIO.writeObj(scene,w);else w.write(SceneIO.encode(scene));
+                }
+                toast("Arquivo exportado");
+            }
+        }catch(Exception e){toast("Erro de arquivo: "+e.getMessage());}
+    }
+    private static String readAll(Reader r)throws Exception{
+        try(Reader reader=r){
+            StringBuilder s=new StringBuilder();char[] block=new char[4096];int n;
+            while((n=reader.read(block))!=-1){s.append(block,0,n);if(s.length()>8_000_000)throw new Exception("Arquivo muito grande");}
+            return s.toString();
+        }
+    }
+    private void saveAutosave(){
+        try(FileOutputStream f=openFileOutput("autosave.redblen",MODE_PRIVATE)){
+            f.write(SceneIO.encode(scene).getBytes(StandardCharsets.UTF_8));
+        }catch(Exception e){toast("Não foi possível salvar: "+e.getMessage());}
+    }
+    private void loadAutosave(){
+        try(FileInputStream f=openFileInput("autosave.redblen")){
+            String json=readAll(new InputStreamReader(f,StandardCharsets.UTF_8));
+            SceneIO.decodeInto(scene,json);scene.clearHistory();
+        }catch(Exception ignored){} // First launch: use default cube.
+    }
+    @Override protected void onPause(){saveAutosave();viewport.onPause();super.onPause();}
+    @Override protected void onResume(){super.onResume();if(viewport!=null){viewport.onResume();viewport.refresh();}}
+
+    private int dp(float value){return (int)(value*getResources().getDisplayMetrics().density+0.5f);}
+    private LinearLayout row(){LinearLayout r=new LinearLayout(this);r.setOrientation(LinearLayout.HORIZONTAL);return r;}
+    private View space(int w,int h){View v=new View(this);v.setLayoutParams(new LinearLayout.LayoutParams(dp(w),dp(h)));return v;}
+    private GradientDrawable bg(int color,float radius,int stroke){
+        GradientDrawable d=new GradientDrawable();d.setColor(color);d.setCornerRadius(dp(radius));
+        if(stroke!=0)d.setStroke(dp(1),stroke);return d;
+    }
+    private TextView label(String value,int size,int color,boolean bold){
+        TextView v=new TextView(this);v.setText(value);v.setTextSize(size);v.setTextColor(color);
+        v.setGravity(Gravity.CENTER_VERTICAL);
+        if(bold)v.setTypeface(Typeface.DEFAULT,Typeface.BOLD);return v;
+    }
+    private TextView button(String text,boolean active,Runnable onClick){
+        TextView v=label(text,13,active?BG:TEXT,active);
+        v.setGravity(Gravity.CENTER);v.setPadding(dp(12),0,dp(12),0);
+        v.setBackground(bg(active?ACCENT:CHIP,10,0));
+        v.setOnClickListener(clicked->onClick.run());return v;
+    }
+    private EditText textField(String value,boolean numeric){
+        EditText e=new EditText(this);e.setText(value);e.setTextSize(13);e.setSingleLine(true);
+        e.setTextColor(TEXT);e.setSelectAllOnFocus(true);e.setPadding(dp(10),0,dp(7),0);
+        e.setBackground(bg(CHIP,8,STROKE));
+        if(numeric)e.setInputType(InputType.TYPE_CLASS_NUMBER|InputType.TYPE_NUMBER_FLAG_DECIMAL|InputType.TYPE_NUMBER_FLAG_SIGNED);
+        return e;
+    }
+    private void toast(String message){Toast.makeText(this,message,Toast.LENGTH_SHORT).show();}
+}

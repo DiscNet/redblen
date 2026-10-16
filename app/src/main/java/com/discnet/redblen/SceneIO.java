@@ -73,12 +73,12 @@ public final class SceneIO {
             p.scale=floats(o.getJSONArray("scale"),3);
             p.color=o.optInt("color",0xFF91AEC3);
             p.metallic=range(o.optDouble("metallic",0),0,1);
-            p.roughness=range(o.optDouble("roughness",.56),.03,1);
+            p.roughness=range(o.optDouble("roughness",.56),.03f,1);
             p.reflectivity=range(o.optDouble("reflectivity",.48),0,1);
             p.emission=range(o.optDouble("emission",0),0,2);
-            p.opacity=range(o.optDouble("opacity",1),.05,1);
+            p.opacity=range(o.optDouble("opacity",1),.05f,1);
             p.textureStrength=range(o.optDouble("textureStrength",1),0,1);
-            p.textureRepeat=range(o.optDouble("textureRepeat",1),.2,12);
+            p.textureRepeat=range(o.optDouble("textureRepeat",1),.2f,12);
             p.textureRotation=range(o.optDouble("textureRotation",0),-180,180);
             p.textureId=o.optString("textureId","");
             if(!TextureStore.safeId(p.textureId))p.textureId="";

@@ -29,7 +29,7 @@ public final class View3D extends GLSurfaceView {
     private final Listener listener;
     private final float density, touchSlop;
     private float downX,downY,lastX,lastY,lastMidX,lastMidY,lastSpan;
-    private boolean didDrag,hadMultiTouch,historySaved,anchorPick,dragOnSelected;
+    private boolean didDrag,hadMultiTouch,historySaved,anchorPick,dragOnSelected,addVertexPick,sculptOnMesh;
 
     public View3D(Context c,Scene scene,Listener listener){
         super(c);
@@ -45,6 +45,20 @@ public final class View3D extends GLSurfaceView {
         setRenderMode(RENDERMODE_WHEN_DIRTY);
     }
     public void refresh(){requestRender();}
+    public void beginAddVertex(){addVertexPick=true;anchorPick=false;listener.onAnchorChanged();}
+    public void cancelAddVertex(){addVertexPick=false;listener.onAnchorChanged();}
+    public boolean isAddingVertex(){return addVertexPick;}
+    private boolean applySculpt(float x,float y){
+        Scene.Part p=scene.current();
+        if(p==null||!p.visible)return false;
+        float[] touch=engine.pickSurfaceOnSelected(x,y);
+        if(touch==null)return false;
+        if(!historySaved){scene.checkpoint();historySaved=true;}
+        MeshEditing.sculpt(p.mesh,new float[]{touch[0],touch[1],touch[2]},
+            new float[]{touch[3],touch[4],touch[5]},scene.brushRadius,scene.brushStrength,
+            scene.sculptBrush,scene.symmetryMask,scene.radialCopies);
+        listener.onDocumentChanged();refresh();return true;
+    }
     public float[] anchor(){return engine.target.clone();}
     public boolean isPickingAnchor(){return anchorPick;}
     public void beginPickAnchor(){anchorPick=true;listener.onAnchorChanged();}
@@ -94,13 +108,17 @@ public final class View3D extends GLSurfaceView {
             case MotionEvent.ACTION_DOWN:
                 downX=lastX=e.getX();downY=lastY=e.getY();
                 didDrag=false;hadMultiTouch=false;historySaved=false;lastSpan=0f;
-                dragOnSelected=false;
+                dragOnSelected=false;sculptOnMesh=false;
+                if(!anchorPick&&!addVertexPick&&scene.mode==Scene.Mode.SCULPT&&scene.tool==Scene.Tool.SCULPT){
+                    sculptOnMesh=applySculpt(downX,downY);
+                    return true;
+                }
                 Scene.Part downPart=scene.current();
                 if(!anchorPick&&downPart!=null&&(scene.tool==Scene.Tool.MOVE||
                     scene.tool==Scene.Tool.ROTATE||scene.tool==Scene.Tool.SCALE)){
                     if(scene.mode==Scene.Mode.VERTEX){
-                        dragOnSelected=scene.selectedVertex>=0 &&
-                            engine.pickVertex(downX,downY,24*density)==scene.selectedVertex;
+                        int touched=engine.pickVertex(downX,downY,24*density);
+                        dragOnSelected=touched>=0&&scene.selectedVertices.contains(touched);
                     }else{
                         int[] underFinger=engine.pickFace(downX,downY);
                         dragOnSelected=underFinger!=null&&underFinger[0]==scene.selected &&
@@ -135,7 +153,10 @@ public final class View3D extends GLSurfaceView {
                 if(!didDrag&&Math.hypot(x-downX,y-downY)<=touchSlop)return true;
                 if(!didDrag){didDrag=true;dx=0;dy=0;}
                 if(dx==0&&dy==0)return true;
-                if(anchorPick)return true;
+                if(anchorPick||addVertexPick)return true;
+                if(sculptOnMesh&&scene.mode==Scene.Mode.SCULPT&&scene.tool==Scene.Tool.SCULPT){
+                    applySculpt(x,y);return true;
+                }
                 Scene.Part part=scene.current();
                 boolean edit=scene.mode!=Scene.Mode.OBJECT;
                 boolean selectedElement=(scene.mode==Scene.Mode.VERTEX&&scene.selectedVertex>=0)||
@@ -149,14 +170,14 @@ public final class View3D extends GLSurfaceView {
                     if(edit){
                         float[] local=ModelTransforms.worldDeltaToLocal(part,delta);
                         if(scene.mode==Scene.Mode.VERTEX){
-                            part.mesh.moveVertex(scene.selectedVertex,local[0],local[1],local[2]);
-                        }else if(scene.selectedFace<part.mesh.faces.size()){
+                            MeshEditing.moveSelection(part.mesh,scene.selectedVertices,local,
+                                scene.symmetryMask,scene.radialCopies);
+                        }else if(scene.selectedFace>=0&&scene.selectedFace<part.mesh.faces.size()){
                             int[] face=part.mesh.faces.get(scene.selectedFace);
-                            boolean[] visited=new boolean[part.mesh.vertexCount()];
-                            for(int id:face)if(!visited[id]){
-                                part.mesh.moveVertex(id,local[0],local[1],local[2]);
-                                visited[id]=true;
-                            }
+                            java.util.LinkedHashSet<Integer> set=new java.util.LinkedHashSet<>();
+                            for(int id:face)set.add(id);
+                            MeshEditing.moveSelection(part.mesh,set,local,
+                                scene.symmetryMask,scene.radialCopies);
                         }
                     }else{
                         switch(scene.tool){
@@ -218,9 +239,39 @@ public final class View3D extends GLSurfaceView {
                         float[] hit=engine.pickAnchor(tapX,tapY);
                         if(hit!=null)setAnchor(hit);
                         else cancelPickAnchor();
+                    }else if(addVertexPick){
+                        int[] hit=engine.pickFace(tapX,tapY);
+                        if(hit==null){cancelAddVertex();return true;}
+                        scene.selected=hit[0];
+                        Scene.Part target=scene.current();
+                        float[] point=engine.pickSurfaceOnSelected(tapX,tapY);
+                        if(point==null||target==null){cancelAddVertex();return true;}
+                        scene.checkpoint();
+                        int id=MeshEditing.insertOnFace(target.mesh,hit[1],
+                            new float[]{point[0],point[1],point[2]});
+                        if(id>=0){
+                            scene.selectedFace=-1;
+                            scene.selectedVertex=id;
+                            scene.selectedVertices.clear();scene.selectedVertices.add(id);
+                            scene.mode=Scene.Mode.VERTEX;scene.tool=Scene.Tool.MOVE;
+                            listener.onDocumentChanged();
+                        }
+                        cancelAddVertex();listener.onSelectionChanged();refresh();
                     }else if(scene.mode==Scene.Mode.VERTEX){
-                        scene.selectedVertex=engine.pickVertex(tapX,tapY,26*density);
+                        int hit=engine.pickVertex(tapX,tapY,24*density);
+                        if(scene.multiSelect){
+                            if(hit>=0){
+                                if(!scene.selectedVertices.remove(hit))scene.selectedVertices.add(hit);
+                                scene.selectedVertex=scene.selectedVertices.isEmpty()?-1:scene.selectedVertices.iterator().next();
+                            }
+                        }else{
+                            scene.selectedVertices.clear();
+                            if(hit>=0)scene.selectedVertices.add(hit);
+                            scene.selectedVertex=hit;
+                        }
                         listener.onSelectionChanged();refresh();
+                    }else if(scene.mode==Scene.Mode.SCULPT){
+                        refresh();
                     }else{
                         int[] hit=engine.pickFace(tapX,tapY);
                         if(hit==null){
@@ -495,11 +546,15 @@ public final class View3D extends GLSurfaceView {
                 GLES20.glEnableVertexAttribArray(aPos);
                 GLES20.glVertexAttribPointer(aPos,3,GLES20.GL_FLOAT,false,0,buffer(mesh.vertices));
                 GLES20.glDrawArrays(GLES20.GL_POINTS,0,mesh.vertexCount());
-                if(scene.selectedVertex>=0&&scene.selectedVertex<mesh.vertexCount()){
-                    int id=scene.selectedVertex;float[] point={mesh.vertices[3*id],mesh.vertices[3*id+1],mesh.vertices[3*id+2]};
-                    uniforms(transform,0xFFFFB878,true,17f);
-                    GLES20.glVertexAttribPointer(aPos,3,GLES20.GL_FLOAT,false,0,buffer(point));
-                    GLES20.glDrawArrays(GLES20.GL_POINTS,0,1);
+                if(!scene.selectedVertices.isEmpty()){
+                    ArrayList<Float> points=new ArrayList<>();
+                    for(int id:scene.selectedVertices)if(id>=0&&id<mesh.vertexCount())
+                        for(int k=0;k<3;k++)points.add(mesh.vertices[id*3+k]);
+                    if(!points.isEmpty()){
+                        uniforms(transform,0xFFFFB878,true,17f);
+                        GLES20.glVertexAttribPointer(aPos,3,GLES20.GL_FLOAT,false,0,buffer(toArray(points)));
+                        GLES20.glDrawArrays(GLES20.GL_POINTS,0,points.size()/3);
+                    }
                 }
                 GLES20.glDisableVertexAttribArray(aPos);
             }
@@ -567,6 +622,31 @@ public final class View3D extends GLSurfaceView {
                 }
             }
             return best;
+        }
+        /** Hit the selected mesh only. xyz and face normal are returned in mesh-local coordinates. */
+        public synchronized float[] pickSurfaceOnSelected(float x,float y){
+            Scene.Part part=scene.current();if(part==null||!part.visible)return null;
+            camera();float[] near=unproject(x,y,-1),far=unproject(x,y,1);
+            if(near==null||far==null)return null;
+            float[] dir=sub(far,near),m=model(part),vs=part.mesh.vertices;
+            float len=(float)Math.sqrt(dot(dir,dir));if(len<1e-7f)return null;
+            for(int k=0;k<3;k++)dir[k]/=len;
+            float closest=Float.POSITIVE_INFINITY;int faceId=-1;
+            for(int fi=0;fi<part.mesh.faces.size();fi++){
+                int[] f=part.mesh.faces.get(fi);
+                for(int j=1;j<f.length-1;j++){
+                    float hit=intersect(near,dir,point(m,vs,f[0]),point(m,vs,f[j]),
+                        point(m,vs,f[j+1]));
+                    if(hit>0.001f&&hit<closest){closest=hit;faceId=fi;}
+                }
+            }
+            if(faceId<0)return null;
+            float[] inverse=new float[16],in={
+                near[0]+dir[0]*closest,near[1]+dir[1]*closest,near[2]+dir[2]*closest,1f},out=new float[4];
+            if(!Matrix.invertM(inverse,0,m,0))return null;
+            Matrix.multiplyMV(out,0,inverse,0,in,0);
+            float[] normal=part.mesh.faceNormal(faceId);
+            return new float[]{out[0],out[1],out[2],normal[0],normal[1],normal[2]};
         }
         public synchronized int pickVertex(float x,float y,float radius){
             camera();Scene.Part p=scene.current();if(p==null||!p.visible)return -1;

@@ -13,6 +13,7 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.view.Window;
 import android.widget.EditText;
+import android.widget.SeekBar;
 import android.widget.FrameLayout;
 import android.widget.HorizontalScrollView;
 import android.widget.LinearLayout;
@@ -34,9 +35,10 @@ import java.util.Locale;
 public final class MainActivity extends Activity implements View3D.Listener {
     private static final int BG=0xFF111419,PANEL=0xFF1B2027,CHIP=0xFF272D36,STROKE=0xFF39424E;
     private static final int TEXT=0xFFEBF0F4,MUTED=0xFF9BA6B3,ACCENT=0xFFD9FB74;
-    private static final int READ_PROJECT=201,READ_OBJ=202,WRITE_PROJECT=203,WRITE_OBJ=204;
+    private static final int READ_PROJECT=201,READ_OBJ=202,WRITE_PROJECT=203,WRITE_OBJ=204,READ_TEXTURE=205;
     private Scene scene;private View3D viewport;private FrameLayout stage;private LinearLayout modes,tools,axisBar;
     private TextView selectionLabel;private View sheet;private String sheetName="";
+    private int pendingTextureTarget=-1;
     private final String[] primitives={"Cubo","Esfera","Cilindro","Cone","Plano"};
     @Override public void onCreate(Bundle state){
         super.onCreate(state);getWindow().setStatusBarColor(BG);getWindow().setNavigationBarColor(BG);
@@ -49,7 +51,7 @@ public final class MainActivity extends Activity implements View3D.Listener {
         setContentView(main);
         LinearLayout header=row();header.setGravity(Gravity.CENTER_VERTICAL);header.setPadding(dp(14),0,dp(10),0);
         TextView title=label("Redblen",20,TEXT,true);header.addView(title,new LinearLayout.LayoutParams(0,-2,1));
-        TextView version=label("0.2",11,MUTED,false);header.addView(version);
+        TextView version=label("0.3",11,MUTED,false);header.addView(version);
         header.addView(space(8,1));
         header.addView(button("↶",false,()->{if(scene.undo())refreshAll();else toast("Nada para desfazer");}),new LinearLayout.LayoutParams(dp(42),dp(40)));
         header.addView(button("↷",false,()->{if(scene.redo())refreshAll();else toast("Nada para refazer");}),new LinearLayout.LayoutParams(dp(42),dp(40)));
@@ -75,9 +77,10 @@ public final class MainActivity extends Activity implements View3D.Listener {
         axisBar.setVisibility(View.GONE);
         LinearLayout bar=row();bar.setGravity(Gravity.CENTER);bar.setPadding(dp(4),0,dp(4),dp(3));
         bar.setBackgroundColor(PANEL);
-        addNav(bar,"＋ Objeto",()->openSheet("add"));
+        addNav(bar,"＋",()->openSheet("add"));
         addNav(bar,"Cena",()->openSheet("scene"));
-        addNav(bar,"Propriedades",()->openSheet("properties"));
+        addNav(bar,"Editar",()->openSheet("properties"));
+        addNav(bar,"Material",()->openSheet("material"));
         addNav(bar,"Arquivo",()->openSheet("file"));
         main.addView(bar,new LinearLayout.LayoutParams(-1,dp(55)));
         renderModes();renderTools();
@@ -104,6 +107,10 @@ public final class MainActivity extends Activity implements View3D.Listener {
         if(scene.mode==Scene.Mode.OBJECT){
             toolButton("Girar",Scene.Tool.ROTATE);
             toolButton("Escala",Scene.Tool.SCALE);
+            addAction(tools,"Excluir",()->{
+                if(scene.current()==null){toast("Selecione o objeto");return;}
+                scene.delete();refreshAll();saveAutosave();toast("Objeto excluído · ↶ para desfazer");
+            });
         }else if(scene.mode==Scene.Mode.FACE){
             addAction(tools,"Extrudar",()->faceOperation("extrude"));
             addAction(tools,"Inset",()->faceOperation("inset"));
@@ -173,7 +180,7 @@ public final class MainActivity extends Activity implements View3D.Listener {
         LinearLayout body=new LinearLayout(this);body.setOrientation(LinearLayout.VERTICAL);
         body.setPadding(dp(16),dp(13),dp(16),dp(14));scroll.addView(body);
         LinearLayout heading=row();heading.setGravity(Gravity.CENTER_VERTICAL);
-        String label=key.equals("add")?"Adicionar objeto":key.equals("scene")?"Cena":key.equals("properties")?"Propriedades":key.equals("camera")?"Câmera e âncora":"Arquivos";
+        String label=key.equals("add")?"Adicionar objeto":key.equals("scene")?"Cena":key.equals("properties")?"Propriedades":key.equals("camera")?"Câmera e âncora":key.equals("material")?"Materiais":"Arquivos";
         TextView caption=label(label,16,TEXT,true);heading.addView(caption,new LinearLayout.LayoutParams(0,-2,1));
         heading.addView(button("Fechar ×",false,()->closeSheet()));
         body.addView(heading);
@@ -184,8 +191,11 @@ public final class MainActivity extends Activity implements View3D.Listener {
             case "properties":panelProperties(body);break;
             case "file":panelFile(body);break;
             case "camera":panelCamera(body);break;
+            case "material":panelMaterial(body);break;
         }
-        FrameLayout.LayoutParams lp=new FrameLayout.LayoutParams(-1,dp(key.equals("properties")?315:key.equals("camera")?345:260),Gravity.BOTTOM);
+        int height=key.equals("material")?Math.min(dp(600),(int)(getResources().getDisplayMetrics().heightPixels*.73f))
+            :dp(key.equals("properties")?315:key.equals("camera")?345:260);
+        FrameLayout.LayoutParams lp=new FrameLayout.LayoutParams(-1,height,Gravity.BOTTOM);
         lp.setMargins(dp(8),0,dp(8),dp(6));stage.addView(scroll,lp);sheet=scroll;
     }
     private void closeSheet(){if(sheet!=null)stage.removeView(sheet);sheet=null;sheetName="";}
@@ -248,15 +258,9 @@ public final class MainActivity extends Activity implements View3D.Listener {
         actions.addView(space(7,1));
         actions.addView(button("Focar",false,()->viewport.focus()));
         body.addView(actions);body.addView(space(1,10));
-        body.addView(label("MATERIAL · COR",10,MUTED,false));body.addView(space(1,5));
-        LinearLayout swatches=row();
-        int[] colors={0xFF91AEC3,0xFFD5AC87,0xFFB5A0CE,0xFF92C8B1,0xFFE28E8E,0xFFE5E2D8};
-        for(int color:colors){
-            TextView v=button("●",p.color==color,()->{scene.checkpoint();p.color=color;refreshAll();});
-            v.setTextColor(color);
-            swatches.addView(v,new LinearLayout.LayoutParams(0,dp(38),1));
-        }
-        body.addView(swatches);
+        body.addView(space(1,10));
+        body.addView(button("Abrir editor de materiais →",false,()->openSheet("material")),
+            new LinearLayout.LayoutParams(-1,dp(44)));
     }
     private EditText[] vectorFields(LinearLayout body,String title,float[] values){
         body.addView(space(1,10));body.addView(label(title,10,MUTED,false));body.addView(space(1,3));
@@ -278,6 +282,148 @@ public final class MainActivity extends Activity implements View3D.Listener {
         }
         return out;
     }
+    private interface FloatSetting { void assign(float value); }
+
+    private void panelMaterial(LinearLayout body){
+        Scene.Part p=scene.current();
+        if(p==null){body.addView(label("Selecione um modelo para editar o material.",13,MUTED,false));return;}
+        body.addView(label("APARÊNCIA · PREDEFINIÇÕES",10,MUTED,true));
+        body.addView(space(1,8));
+        HorizontalScrollView strip=new HorizontalScrollView(this);
+        strip.setHorizontalScrollBarEnabled(false);
+        LinearLayout presets=row();
+        preset(presets,p,"Mate",0f,.88f,.25f,p.color,1f);
+        preset(presets,p,"Plástico",0f,.28f,.7f,p.color,1f);
+        preset(presets,p,"Aço",1f,.22f,.95f,0xFFB7C3C9,1f);
+        preset(presets,p,"Ouro",1f,.2f,.95f,0xFFE5AD43,1f);
+        preset(presets,p,"Cromo",1f,.06f,1f,0xFFD6E2ED,1f);
+        preset(presets,p,"Vidro",0f,.08f,.9f,0xFFC2E6FA,.32f);
+        strip.addView(presets);body.addView(strip);
+        body.addView(space(1,12));
+        body.addView(label("COR DO MATERIAL",10,MUTED,true));body.addView(space(1,7));
+        LinearLayout colorRow=row();
+        View preview=new View(this);preview.setBackground(bg(p.color,10,STROKE));
+        colorRow.addView(preview,new LinearLayout.LayoutParams(dp(49),dp(43)));
+        colorRow.addView(space(9,1));
+        TextView choose=button(String.format(Locale.US,"Personalizar  #%06X",p.color & 0xFFFFFF),false,()->openColorPicker(p));
+        colorRow.addView(choose,new LinearLayout.LayoutParams(0,dp(43),1));
+        body.addView(colorRow);
+        body.addView(space(1,10));
+        body.addView(label("SUPERFÍCIE · AJUSTES EM TEMPO REAL",10,MUTED,true));
+        body.addView(space(1,5));
+        materialSlider(body,"Metalicidade",p.metallic,0,100,"%",v->p.metallic=v);
+        materialSlider(body,"Rugosidade",p.roughness,3,100,"%",v->p.roughness=v);
+        materialSlider(body,"Reflexão",p.reflectivity,0,100,"%",v->p.reflectivity=v);
+        materialSlider(body,"Emissão",p.emission,0,200,"%",v->p.emission=v);
+        materialSlider(body,"Opacidade",p.opacity,5,100,"%",v->p.opacity=v);
+        body.addView(space(1,10));
+        body.addView(label("TEXTURA PERSONALIZADA",10,MUTED,true));
+        body.addView(space(1,6));
+        LinearLayout textureActions=row();
+        textureActions.addView(button(p.textureId.isEmpty()?"＋ Importar imagem":"Trocar imagem",true,()->{
+            pendingTextureTarget=scene.selected;
+            openDocument(READ_TEXTURE,"image/*");
+        }),new LinearLayout.LayoutParams(0,dp(43),1));
+        textureActions.addView(space(7,1));
+        textureActions.addView(button("Remover textura",false,()->{
+            if(p.textureId.isEmpty())return;
+            scene.checkpoint();p.textureId="";saveAutosave();refreshAll();
+        }),new LinearLayout.LayoutParams(0,dp(43),1));
+        body.addView(textureActions);
+        body.addView(space(1,8));
+        body.addView(label(p.textureId.isEmpty()?"Nenhuma textura aplicada":"Textura carregada no material",12,MUTED,false));
+        materialSlider(body,"Intensidade da textura",p.textureStrength,0,100,"%",v->p.textureStrength=v);
+        materialSlider(body,"Repetição",p.textureRepeat,20,1200,"x100",v->p.textureRepeat=v);
+        materialSlider(body,"Rotação",p.textureRotation,-180,180,"°",v->p.textureRotation=v);
+        body.addView(space(1,12));
+        body.addView(label("Reflexos simulados com iluminação de estúdio. Texturas usam projeção triplanar; não há reflexo real entre objetos.",11,MUTED,false));
+    }
+    private void preset(LinearLayout row,Scene.Part p,String name,float metal,float rough,float reflect,int color,float opacity){
+        TextView item=button(name,false,()->{
+            scene.checkpoint();
+            p.metallic=metal;p.roughness=rough;p.reflectivity=reflect;
+            p.color=color;p.opacity=opacity;p.emission=0f;
+            viewport.refresh();saveAutosave();openSheetRefresh();
+        });
+        LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-2,dp(37));
+        lp.rightMargin=dp(6);row.addView(item,lp);
+    }
+    private void materialSlider(LinearLayout body,String name,float initial,int minimum,int maximum,
+                                String suffix,FloatSetting setting){
+        int progress=Math.max(minimum,Math.min(maximum,Math.round(initial*(suffix.equals("x100")?100f:suffix.equals("%")?100f:1f))));
+        LinearLayout title=row();title.setGravity(Gravity.CENTER_VERTICAL);
+        title.addView(label(name,12,TEXT,false),new LinearLayout.LayoutParams(0,-2,1));
+        TextView value=label(formatValue(progress,suffix),12,MUTED,false);title.addView(value);
+        body.addView(title);
+        SeekBar seek=new SeekBar(this);
+        seek.setMax(maximum-minimum);
+        seek.setProgress(progress-minimum);
+        seek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){
+            @Override public void onProgressChanged(SeekBar bar,int p,boolean fromUser){
+                if(!fromUser)return;
+                int actual=p+minimum;value.setText(formatValue(actual,suffix));
+                setting.assign(suffix.equals("x100")?actual/100f:suffix.equals("%")?actual/100f:actual);
+                viewport.refresh();
+            }
+            @Override public void onStartTrackingTouch(SeekBar bar){scene.checkpoint();}
+            @Override public void onStopTrackingTouch(SeekBar bar){saveAutosave();}
+        });
+        body.addView(seek,new LinearLayout.LayoutParams(-1,dp(35)));
+    }
+    private String formatValue(int value,String suffix){
+        if(suffix.equals("x100"))return String.format(Locale.US,"%.2fx",value/100f);
+        return value+suffix;
+    }
+    private void openColorPicker(Scene.Part p){
+        int initial=p.color;
+        LinearLayout box=new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(18),dp(8),dp(18),dp(3));
+        View swatch=new View(this);
+        swatch.setBackground(bg(initial,12,STROKE));
+        box.addView(swatch,new LinearLayout.LayoutParams(-1,dp(47)));
+        box.addView(space(1,10));
+        EditText hex=textField(String.format(Locale.US,"#%06X",initial&0xFFFFFF),false);
+        box.addView(hex,new LinearLayout.LayoutParams(-1,dp(45)));
+        box.addView(space(1,8));
+        int[] rgb={Color.red(initial),Color.green(initial),Color.blue(initial)};
+        String[] channels={"Vermelho","Verde","Azul"};
+        for(int i=0;i<3;i++){
+            final int axis=i;
+            LinearLayout line=row();line.setGravity(Gravity.CENTER_VERTICAL);
+            line.addView(label(channels[i],12,TEXT,false),new LinearLayout.LayoutParams(dp(83),-2));
+            SeekBar slider=new SeekBar(this);slider.setMax(255);slider.setProgress(rgb[i]);
+            slider.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){
+                @Override public void onStartTrackingTouch(SeekBar bar){}
+                @Override public void onProgressChanged(SeekBar bar,int value,boolean user){
+                    if(!user)return;
+                    rgb[axis]=value;
+                    int tint=Color.rgb(rgb[0],rgb[1],rgb[2]);
+                    hex.setText(String.format(Locale.US,"#%06X",tint&0xFFFFFF));
+                    swatch.setBackground(bg(tint,12,STROKE));
+                    p.color=tint;viewport.refresh();
+                }
+                @Override public void onStopTrackingTouch(SeekBar bar){}
+            });
+            line.addView(slider,new LinearLayout.LayoutParams(0,dp(45),1));
+            box.addView(line);
+        }
+        scene.checkpoint();
+        new AlertDialog.Builder(this).setTitle("Cor personalizada")
+            .setView(box)
+            .setNegativeButton("Cancelar",(d,w)->{p.color=initial;viewport.refresh();})
+            .setPositiveButton("Aplicar",(d,w)->{
+                try{
+                    String raw=hex.getText().toString().trim();
+                    if(!raw.startsWith("#"))raw="#"+raw;
+                    p.color=0xFF000000|(Color.parseColor(raw)&0xFFFFFF);
+                    viewport.refresh();saveAutosave();openSheetRefresh();
+                }catch(IllegalArgumentException error){
+                    p.color=initial;viewport.refresh();toast("Cor hexadecimal inválida");
+                }
+            }).show();
+    }
+
     private void panelCamera(LinearLayout body){
         body.addView(label("NAVEGAÇÃO",10,MUTED,true));
         body.addView(space(1,7));
@@ -384,8 +530,16 @@ public final class MainActivity extends Activity implements View3D.Listener {
         try{
             if(request==READ_PROJECT){
                 String json=readAll(new InputStreamReader(getContentResolver().openInputStream(uri),StandardCharsets.UTF_8));
-                scene.checkpoint();SceneIO.decodeInto(scene,json);scene.clearHistory();closeSheet();refreshAll();saveAutosave();
+                scene.checkpoint();SceneIO.decodePortableInto(scene,json,this);scene.clearHistory();closeSheet();refreshAll();saveAutosave();
                 toast("Projeto aberto");
+            }else if(request==READ_TEXTURE){
+                if(pendingTextureTarget<0||pendingTextureTarget>=scene.objects.size())throw new Exception("Seleção inválida");
+                String id=TextureStore.importImage(this,uri);
+                Scene.Part target=scene.objects.get(pendingTextureTarget);
+                scene.checkpoint();target.textureId=id;
+                pendingTextureTarget=-1;
+                saveAutosave();viewport.refresh();openSheetRefresh();
+                toast("Textura aplicada");
             }else if(request==READ_OBJ){
                 Mesh mesh;
                 try(Reader r=new InputStreamReader(getContentResolver().openInputStream(uri),StandardCharsets.UTF_8)){mesh=SceneIO.readObj(r);}
@@ -394,7 +548,7 @@ public final class MainActivity extends Activity implements View3D.Listener {
                 scene.selectedVertex=-1;scene.selectedFace=-1;closeSheet();refreshAll();saveAutosave();toast("OBJ importado");
             }else if(request==WRITE_OBJ||request==WRITE_PROJECT){
                 try(Writer w=new OutputStreamWriter(getContentResolver().openOutputStream(uri),StandardCharsets.UTF_8)){
-                    if(request==WRITE_OBJ)SceneIO.writeObj(scene,w);else w.write(SceneIO.encode(scene));
+                    if(request==WRITE_OBJ)SceneIO.writeObj(scene,w);else w.write(SceneIO.encodePortable(scene,this));
                 }
                 toast("Arquivo exportado");
             }

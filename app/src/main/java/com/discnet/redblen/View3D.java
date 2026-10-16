@@ -181,16 +181,16 @@ public final class View3D extends GLSurfaceView {
                 lastSpan=0f;return true;
             case MotionEvent.ACTION_UP:
                 if(!hadMultiTouch&&!didDrag){
-                    float x=e.getX(),y=e.getY();
+                    float tapX=e.getX(),tapY=e.getY();
                     if(anchorPick){
-                        float[] hit=engine.pickAnchor(x,y);
+                        float[] hit=engine.pickAnchor(tapX,tapY);
                         if(hit!=null)setAnchor(hit);
                         else cancelPickAnchor();
                     }else if(scene.mode==Scene.Mode.VERTEX){
-                        scene.selectedVertex=engine.pickVertex(x,y,26*density);
+                        scene.selectedVertex=engine.pickVertex(tapX,tapY,26*density);
                         listener.onSelectionChanged();refresh();
                     }else{
-                        int[] hit=engine.pickFace(x,y);
+                        int[] hit=engine.pickFace(tapX,tapY);
                         if(hit==null){
                             scene.selected=-1;scene.selectedFace=-1;scene.selectedVertex=-1;
                         }else{
